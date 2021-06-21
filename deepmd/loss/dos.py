@@ -88,7 +88,7 @@ class DOSLoss () :
         atom_norm_ener  = 1./ global_cvt_2_ener_float(natoms[0]) 
         
         pref_dos = global_cvt_2_ener_float(find_dos * (self.limit_pref_dos + (self.start_pref_dos - self.limit_pref_dos) * learning_rate / self.starter_learning_rate) )
-        pref_cdf =  global_cvt_2_ener_float(find_cdf * (self.limit_pref_cdf + (self.start_pref_dos - self.limit_pref_cdf) * learning_rate / self.starter_learning_rate) )
+        pref_cdf =  global_cvt_2_ener_float(find_cdf * (self.limit_pref_cdf + (self.start_pref_cdf - self.limit_pref_cdf) * learning_rate / self.starter_learning_rate) )
         pref_ados = global_cvt_2_ener_float(find_ados * (self.limit_pref_ados + (self.start_pref_ados - self.limit_pref_ados) * learning_rate / self.starter_learning_rate) )
         pref_acdf =  global_cvt_2_ener_float(find_acdf * (self.limit_pref_acdf + (self.start_pref_ados - self.limit_pref_acdf) * learning_rate / self.starter_learning_rate) )
 
