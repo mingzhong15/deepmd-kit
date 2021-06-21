@@ -77,12 +77,12 @@ class DOSLoss () :
         atom_dos_reshape = tf.reshape (atom_dos, [-1, self.numb_dos])
         atom_dos_hat_reshape = tf.reshape (atom_dos_hat, [-1, self.numb_dos])
         diff_atom_dos = atom_dos_hat_reshape - atom_dos_reshape
-        l2_atom_dos_loss = tf.reduce_mean( tf.square( diff_atom_dos ), name='l2_atom_dos_'+suffix)
+        l2_atom_dos_loss = tf.reduce_mean( tf.square( diff_atom_dos ), name='l2_ados_'+suffix)
 
         atom_cdf = tf.cumsum(atom_dos_reshape, axis = 1)
         atom_cdf_hat = tf.cumsum(atom_dos_hat_reshape, axis = 1)
         diff_atom_cdf = atom_cdf_hat - atom_cdf
-        l2_atom_cdf_loss = tf.reduce_mean(tf.square(diff_atom_cdf), name = "l2_atom_cdf_" + suffix)        
+        l2_atom_cdf_loss = tf.reduce_mean(tf.square(diff_atom_cdf), name = "l2_acdf_" + suffix)        
         
         atom_norm  = 1./ global_cvt_2_tf_float(natoms[0]) 
         atom_norm_ener  = 1./ global_cvt_2_ener_float(natoms[0]) 
@@ -102,17 +102,17 @@ class DOSLoss () :
         more_loss['l2_cdf_loss'] = l2_cdf_loss        
         if self.has_ados :
             l2_loss += global_cvt_2_ener_float(pref_ados * l2_atom_dos_loss)
-        more_loss['l2_atom_dos_loss'] = l2_atom_dos_loss       
+        more_loss['l2_ados_loss'] = l2_atom_dos_loss       
         if self.has_acdf :
             l2_loss += global_cvt_2_ener_float(pref_acdf * l2_atom_cdf_loss)
-        more_loss['l2_atom_cdf_loss'] = l2_atom_cdf_loss 
+        more_loss['l2_acdf_loss'] = l2_atom_cdf_loss 
         
         # only used when tensorboard was set as true
         self.l2_loss_summary = tf.summary.scalar('l2_loss', tf.sqrt(l2_loss))
         self.l2_loss_dos_summary = tf.summary.scalar('l2_dos_loss', global_cvt_2_tf_float(tf.sqrt(l2_dos_loss)) / global_cvt_2_tf_float(natoms[0]))
         self.l2_loss_cdf_summary = tf.summary.scalar('l2_cdf_loss', global_cvt_2_tf_float(tf.sqrt(l2_cdf_loss)) / global_cvt_2_tf_float(natoms[0]))
-        self.l2_loss_ados_summary = tf.summary.scalar('l2_atom_dos_loss', global_cvt_2_tf_float(tf.sqrt(l2_atom_dos_loss)) / global_cvt_2_tf_float(natoms[0]))
-        self.l2_loss_acdf_summary = tf.summary.scalar('l2_atom_cdf_loss', global_cvt_2_tf_float(tf.sqrt(l2_atom_cdf_loss)) / global_cvt_2_tf_float(natoms[0]))        
+        self.l2_loss_ados_summary = tf.summary.scalar('l2_ados_loss', global_cvt_2_tf_float(tf.sqrt(l2_atom_dos_loss)) / global_cvt_2_tf_float(natoms[0]))
+        self.l2_loss_acdf_summary = tf.summary.scalar('l2_acdf_loss', global_cvt_2_tf_float(tf.sqrt(l2_atom_cdf_loss)) / global_cvt_2_tf_float(natoms[0]))        
 
         self.l2_l = l2_loss
         self.l2_more = more_loss
