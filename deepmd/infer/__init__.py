@@ -8,6 +8,7 @@ from .deep_dipole import DeepDipole
 from .deep_eval import DeepEval
 from .deep_polar import DeepGlobalPolar, DeepPolar
 from .deep_pot import DeepPot
+from .deep_dos import DeepDOS
 from .deep_wfc import DeepWFC
 from .ewald_recp import EwaldRecp
 
@@ -18,6 +19,7 @@ __all__ = [
     "DeepGlobalPolar",
     "DeepPolar",
     "DeepPot",
+    "DeepDOS",
     "DeepWFC",
     "DipoleChargeModifier",
     "EwaldRecp",
@@ -58,6 +60,8 @@ def DeepPotential(
 
     if model_type == "ener":
         dp = DeepPot(mf, load_prefix=load_prefix, default_tf_graph=default_tf_graph)
+    elif model_type == "dos":
+        dp = DeepDOS(mf, load_prefix=load_prefix, default_tf_graph=default_tf_graph)
     elif model_type == "dipole":
         dp = DeepDipole(mf, load_prefix=load_prefix, default_tf_graph=default_tf_graph)
     elif model_type == "polar":
