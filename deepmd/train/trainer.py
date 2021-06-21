@@ -8,7 +8,7 @@ from deepmd.env import tf
 from deepmd.env import default_tf_session_config
 from deepmd.env import GLOBAL_TF_FLOAT_PRECISION
 from deepmd.env import GLOBAL_ENER_FLOAT_PRECISION
-from deepmd.fit import EnerFitting, WFCFitting, PolarFittingLocFrame, PolarFittingSeA, GlobalPolarFittingSeA, DipoleFittingSeA
+from deepmd.fit import EnerFitting, DOSFitting, WFCFitting, PolarFittingLocFrame, PolarFittingSeA, GlobalPolarFittingSeA, DipoleFittingSeA
 from deepmd.descriptor import DescrptLocFrame
 from deepmd.descriptor import DescrptSeA
 from deepmd.descriptor import DescrptSeAT
@@ -110,6 +110,8 @@ class DPTrainer (object):
         fitting_param['descrpt'] = self.descrpt
         if fitting_type == 'ener':
             self.fitting = EnerFitting(**fitting_param)
+        elif fitting_type == 'dos':
+            self.fitting = DOSFitting(**fitting_param)
         # elif fitting_type == 'wfc':            
         #     self.fitting = WFCFitting(fitting_param, self.descrpt)
         elif fitting_type == 'dipole':
