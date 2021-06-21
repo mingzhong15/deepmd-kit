@@ -211,6 +211,31 @@ def fitting_ener():
         Argument("atom_ener", list, optional = True, default = [], doc = doc_atom_ener)
     ]
 
+def fitting_dos():
+    doc_numb_fparam = 'The dimension of the frame parameter. If set to >0, file `fparam.npy` should be included to provided the input fparams.'
+    doc_numb_aparam = 'The dimension of the atomic parameter. If set to >0, file `aparam.npy` should be included to provided the input aparams.'
+    doc_neuron = 'The number of neurons in each hidden layers of the fitting net. When two hidden layers are of the same size, a skip connection is built.'
+    doc_activation_function = f'The activation function in the fitting net. Supported activation functions are {list_to_doc(activation_fn_dict.keys())}'
+    doc_precision = f'The precision of the fitting net parameters, supported options are {list_to_doc(precision_dict.keys())}'
+    doc_resnet_dt = 'Whether to use a "Timestep" in the skip connection'
+    doc_trainable = 'Whether the parameters in the fitting net are trainable. This option can be\n\n\
+- bool: True if all parameters of the fitting net are trainable, False otherwise.\n\n\
+- list of bool: Specifies if each layer is trainable. Since the fitting net is composed by hidden layers followed by a output layer, the length of tihs list should be equal to len(`neuron`)+1.'
+    doc_numb_dos = 'The number of gridpoints on which the DOS is evaluated (NEDOS in VASP)'
+    doc_seed = 'Random seed for parameter initialization of the fitting net'
+
+
+    return [
+        Argument("numb_fparam", int, optional = True, default = 0, doc = doc_numb_fparam),
+        Argument("numb_aparam", int, optional = True, default = 0, doc = doc_numb_aparam),
+        Argument("neuron", list, optional = True, default = [120,120,120], doc = doc_neuron),
+        Argument("activation_function", str, optional = True, default = 'tanh', doc = doc_activation_function),
+        Argument("precision", str, optional = True, default = 'float64', doc = doc_precision),
+        Argument("resnet_dt", bool, optional = True, default = True, doc = doc_resnet_dt),
+        Argument("trainable", [list,bool], optional = True, default = True, doc = doc_trainable),
+        Argument("seed", [int,None], optional = True, doc = doc_seed),
+        Argument("numb_dos",int, optional= True, default = 300, doc = doc_numb_dos)
+    ]
 
 def fitting_polar():
     doc_neuron = 'The number of neurons in each hidden layers of the fitting net. When two hidden layers are of the same size, a skip connection is built.'
@@ -265,6 +290,7 @@ def fitting_variant_type_args():
 - `global_polar`: Fit a polarizability model. Polarizability labels should be provided by `polarizability.npy` in each data system. The file has number of frames lines and 9 columns.'
     
     return Variant("type", [Argument("ener", dict, fitting_ener()),
+                            Argument("dos", dict, fitting_dos()),
                             Argument("dipole", dict, fitting_dipole()),
                             Argument("polar", dict, fitting_polar()),
                             Argument("global_polar", dict, fitting_global_polar())], 
@@ -347,7 +373,8 @@ def loss_variant_type_args():
     doc_loss = 'The type of the loss. For fitting type `ener`, the loss type should be set to `ener` or left unset. For tensorial fitting types `dipole`, `polar` and `global_polar`, the type should be left unset.\n\.'
     
     return Variant("type", 
-                   [Argument("ener", dict, loss_ener())],
+                   [Argument("ener", dict, loss_ener()),
+                    Argument("dos", dict, [])],
                    optional = True,
                    default_tag = 'ener',
                    doc = doc_loss)
