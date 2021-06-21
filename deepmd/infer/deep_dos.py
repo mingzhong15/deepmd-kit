@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
-class DeepPot(DeepEval):
+class DeepDOS(DeepEval):
     """Constructor.
     Parameters
     ----------
@@ -48,6 +48,7 @@ class DeepPot(DeepEval):
                 # fitting attrs
                 "t_dfparam": "fitting_attr/dfparam:0",
                 "t_daparam": "fitting_attr/daparam:0",
+                "t_numb_dos":"fitting_attr/numb_dos:0",
                 # model attrs
                 "t_tmap": "model_attr/tmap:0",
                 # inputs
@@ -57,11 +58,8 @@ class DeepPot(DeepEval):
                 "t_box": "t_box:0",
                 "t_mesh": "t_mesh:0",
                 # add output tensors
-                "t_energy": "o_energy:0",
-                "t_force": "o_force:0",
-                "t_virial": "o_virial:0",
-                "t_ae": "o_atom_energy:0",
-                "t_av": "o_atom_virial:0"
+                "t_dos": "o_dos:0",
+                "t_ados": "o_atom_dos:0"
             },
         )
         DeepEval.__init__(
@@ -75,13 +73,6 @@ class DeepPot(DeepEval):
         operations = [op.name for op in self.graph.get_operations()]
         # check if the graph has these operations:
         # if yes add them
-        if 't_efield' in operations:
-            self._get_tensor("t_efield:0", "t_efield")
-            self.has_efield = True
-        else:
-            log.debug(f"Could not get tensor 't_efield:0'")
-            self.t_efield = None
-            self.has_efield = False
 
         if 'load/t_fparam' in operations:
             self.tensors.update({"t_fparam": "t_fparam:0"})
@@ -115,20 +106,9 @@ class DeepPot(DeepEval):
         except (ValueError, KeyError):
             self.modifier_type = None
 
-        if self.modifier_type == "dipole_charge":
-            t_mdl_name = self._get_tensor("modifier_attr/mdl_name:0")
-            t_mdl_charge_map = self._get_tensor("modifier_attr/mdl_charge_map:0")
-            t_sys_charge_map = self._get_tensor("modifier_attr/sys_charge_map:0")
-            t_ewald_h = self._get_tensor("modifier_attr/ewald_h:0")
-            t_ewald_beta = self._get_tensor("modifier_attr/ewald_beta:0")
-            [mdl_name, mdl_charge_map, sys_charge_map, ewald_h, ewald_beta] = self.sess.run([t_mdl_name, t_mdl_charge_map, t_sys_charge_map, t_ewald_h, t_ewald_beta])
-            mdl_charge_map = [int(ii) for ii in mdl_charge_map.decode("UTF-8").split()]
-            sys_charge_map = [int(ii) for ii in sys_charge_map.decode("UTF-8").split()]
-            self.dm = DipoleChargeModifier(mdl_name, mdl_charge_map, sys_charge_map, ewald_h = ewald_h, ewald_beta = ewald_beta)
-
     def _run_default_sess(self):
-        [self.ntypes, self.rcut, self.dfparam, self.daparam, self.tmap] = self.sess.run(
-            [self.t_ntypes, self.t_rcut, self.t_dfparam, self.t_daparam, self.t_tmap]
+        [self.ntypes, self.rcut, self.numb_dos, self.dfparam, self.daparam, self.tmap] = self.sess.run(
+            [self.t_ntypes, self.t_rcut, self.t_numb_dos, self.t_dfparam, self.t_daparam, self.t_tmap]
         )
 
     def get_ntypes(self) -> int:
@@ -138,7 +118,13 @@ class DeepPot(DeepEval):
     def get_rcut(self) -> float:
         """Get the cut-off radius of this model."""
         return self.rcut
-
+    
+    def get_numb_dos(self) -> int:
+        """
+        Get the number of density of state of this DP
+        """
+        return self.numb_dos
+    
     def get_type_map(self) -> List[int]:
         """Get the type map (element name of the atom types) of this model."""
         return self.tmap
@@ -161,10 +147,9 @@ class DeepPot(DeepEval):
         atom_types: List[int],
         atomic: bool = False,
         fparam: Optional[np.array] = None,
-        aparam: Optional[np.array] = None,
-        efield: Optional[np.array] = None
+        aparam: Optional[np.array] = None
     ) -> Tuple[np.ndarray, ...]:
-        """Evaluate the energy, force and virial by using this DP.
+        """Evaluate the dos, ados by using this DP.
         Parameters
         ----------
         coords
@@ -190,34 +175,20 @@ class DeepPot(DeepEval):
             - nframes x natoms x dim_aparam.
             - natoms x dim_aparam. Then all frames are assumed to be provided with the same aparam.
             - dim_aparam. Then all frames and atoms are provided with the same aparam.
-        efield
-            The external field on atoms.
-            The array should be of size nframes x natoms x 3
         Returns
         -------
-        energy
-            The system energy.
-        force
-            The force on each atom
-        virial
-            The virial
-        atom_energy
-            The atomic energy. Only returned when atomic == True
-        atom_virial
-            The atomic virial. Only returned when atomic == True
+        dos
+            The electron density of state.
+        ados
+            The atom-sited density of state. Only returned when atomic == True
         """
         if atomic:
             if self.modifier_type is not None:
                 raise RuntimeError('modifier does not support atomic modification')
-            return self._eval_inner(coords, cells, atom_types, fparam = fparam, aparam = aparam, atomic = atomic, efield = efield)
+            return self._eval_inner(coords, cells, atom_types, fparam = fparam, aparam = aparam, atomic = atomic)
         else :
-            e, f, v = self._eval_inner(coords, cells, atom_types, fparam = fparam, aparam = aparam, atomic = atomic, efield = efield)
-            if self.modifier_type is not None:
-                me, mf, mv = self.dm.eval(coords, cells, atom_types)
-                e += me.reshape(e.shape)
-                f += mf.reshape(f.shape)
-                v += mv.reshape(v.shape)
-            return e, f, v
+            dos = self._eval_inner(coords, cells, atom_types, fparam = fparam, aparam = aparam, atomic = atomic)
+            return dos
 
     def _eval_inner(
         self,
@@ -226,8 +197,7 @@ class DeepPot(DeepEval):
         atom_types,
         fparam=None,
         aparam=None,
-        atomic=False,
-        efield=None
+        atomic=False
     ):
         # standarize the shape of inputs
         atom_types = np.array(atom_types, dtype = int).reshape([-1])
@@ -248,9 +218,6 @@ class DeepPot(DeepEval):
         if self.has_aparam :
             assert(aparam is not None)
             aparam = np.array(aparam)
-        if self.has_efield :
-            assert(efield is not None), "you are using a model with external field, parameter efield should be provided"
-            efield = np.array(efield)
 
         # reshape the inputs 
         if self.has_fparam :
@@ -273,11 +240,7 @@ class DeepPot(DeepEval):
                 raise RuntimeError('got wrong size of frame param, should be either %d x %d x %d or %d x %d or %d' % (nframes, natoms, fdim, natoms, fdim, fdim))
 
         # sort inputs
-        coords, atom_types, imap = self.sort_input(coords, atom_types)
-        if self.has_efield:
-            efield = np.reshape(efield, [nframes, natoms, 3])
-            efield = efield[:,imap,:]
-            efield = np.reshape(efield, [nframes, natoms*3])            
+        coords, atom_types, imap = self.sort_input(coords, atom_types)         
 
         # make natoms_vec and default_mesh
         natoms_vec = self.make_natoms_vec(atom_types)
@@ -287,17 +250,12 @@ class DeepPot(DeepEval):
         feed_dict_test = {}
         feed_dict_test[self.t_natoms] = natoms_vec
         feed_dict_test[self.t_type  ] = np.tile(atom_types, [nframes, 1]).reshape([-1])
-        t_out = [self.t_energy, 
-                 self.t_force, 
-                 self.t_virial]
+        t_out = [self.t_dos]
         if atomic :
-            t_out += [self.t_ae, 
-                      self.t_av]
+            t_out += [self.t_ados]
 
         feed_dict_test[self.t_coord] = np.reshape(coords, [-1])
         feed_dict_test[self.t_box  ] = np.reshape(cells , [-1])
-        if self.has_efield:
-            feed_dict_test[self.t_efield]= np.reshape(efield, [-1])
         if pbc:
             feed_dict_test[self.t_mesh ] = make_default_mesh(cells)
         else:
@@ -307,25 +265,18 @@ class DeepPot(DeepEval):
         if self.has_aparam:
             feed_dict_test[self.t_aparam] = np.reshape(aparam, [-1])
         v_out = self.sess.run (t_out, feed_dict = feed_dict_test)
-        energy = v_out[0]
-        force = v_out[1]
-        virial = v_out[2]
+        dos = v_out[0]
         if atomic:
-            ae = v_out[3]
-            av = v_out[4]
+            ados = v_out[1]
 
         # reverse map of the outputs
-        force  = self.reverse_map(np.reshape(force, [nframes,-1,3]), imap)
+        dos  = self.reverse_map(np.reshape(dos, [nframes,-1,self.numb_dos]), imap)
         if atomic :
-            ae  = self.reverse_map(np.reshape(ae, [nframes,-1,1]), imap)
-            av  = self.reverse_map(np.reshape(av, [nframes,-1,9]), imap)
+            ados  = self.reverse_map(np.reshape(ados, [nframes,-1,self.numb_dos]), imap)
 
-        energy = np.reshape(energy, [nframes, 1])
-        force = np.reshape(force, [nframes, natoms, 3])
-        virial = np.reshape(virial, [nframes, 9])
+        dos = np.reshape(dos, [nframes, self.numb_dos])
         if atomic:
-            ae = np.reshape(ae, [nframes, natoms, 1])
-            av = np.reshape(av, [nframes, natoms, 9])
-            return energy, force, virial, ae, av
+            ados = np.reshape(ados, [nframes, natoms, self.numb_dos])
+            return dos, ados
         else :
-            return energy, force, virial
+            return dos
