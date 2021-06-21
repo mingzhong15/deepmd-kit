@@ -5,47 +5,46 @@ from deepmd.common import ClassArg, add_data_requirement
 from deepmd.env import global_cvt_2_tf_float
 from deepmd.env import global_cvt_2_ener_float
 
-class EnerStdLoss () :
+class DOSLoss () :
     """
-    Standard loss function for DP models
+    Density of state, oss function for DP models
     """
     def __init__ (self, 
-                  starter_learning_rate : float, 
-                  start_pref_e : float = 0.02,
-                  limit_pref_e : float = 1.00,
-                  start_pref_f : float = 1000,
-                  limit_pref_f : float = 1.00,
-                  start_pref_v : float = 0.0,
-                  limit_pref_v : float = 0.0,
-                  start_pref_ae : float = 0.0,
-                  limit_pref_ae : float = 0.0,
-                  start_pref_pf : float = 0.0,
-                  limit_pref_pf : float = 0.0,
-                  relative_f : float = None 
+                  starter_learning_rate : float,
+                  numb_dos : int = 1000,
+                  start_pref_dos: float = 1.0,
+                  limit_pref_dos: float = 1.0,
+                  start_pref_cdf: float = 1e-3,
+                  limit_pref_cdf: float = 1e-3,
+                  start_pref_ados: float = 0.0,
+                  limit_pref_ados: float = 0.0,
+                  start_pref_acdf: float = 0.0,
+                  limit_pref_acdf: float = 0.0,
+                  protect_value : float = 1e-8,
+                  log_fit : bool = False
     ) -> None:
         self.starter_learning_rate = starter_learning_rate
-        self.start_pref_e = start_pref_e
-        self.limit_pref_e = limit_pref_e
-        self.start_pref_f = start_pref_f
-        self.limit_pref_f = limit_pref_f
-        self.start_pref_v = start_pref_v
-        self.limit_pref_v = limit_pref_v
-        self.start_pref_ae = start_pref_ae
-        self.limit_pref_ae = limit_pref_ae
-        self.start_pref_pf = start_pref_pf
-        self.limit_pref_pf = limit_pref_pf
-        self.relative_f = relative_f
-        self.has_e = (self.start_pref_e != 0.0 or self.limit_pref_e != 0.0)
-        self.has_f = (self.start_pref_f != 0.0 or self.limit_pref_f != 0.0)
-        self.has_v = (self.start_pref_v != 0.0 or self.limit_pref_v != 0.0)
-        self.has_ae = (self.start_pref_ae != 0.0 or self.limit_pref_ae != 0.0)
-        self.has_pf = (self.start_pref_pf != 0.0 or self.limit_pref_pf != 0.0)
+        self.numb_dos = numb_dos
+        self.protect_value = protect_value
+        self.log_fit = log_fit
+
+        self.start_pref_dos = start_pref_dos
+        self.limit_pref_dos = limit_pref_dos
+        self.start_pref_cdf = start_pref_cdf
+        self.limit_pref_cdf = limit_pref_cdf    
+        
+        self.start_pref_ados = start_pref_ados
+        self.limit_pref_ados = limit_pref_ados   
+        self.start_pref_acdf = start_pref_acdf
+        self.limit_pref_acdf = limit_pref_acdf
+        
+        self.has_dos = (self.start_pref_dos != 0 or self.limit_pref_dos != 0)
+        self.has_cdf = (self.start_pref_cdf != 0 or self.limit_pref_cdf != 0)
+        self.has_ados = (self.start_pref_ados != 0 or self.limit_pref_ados != 0)
+        self.has_acdf = (self.start_pref_acdf != 0 or self.limit_pref_acdf != 0)
         # data required
-        add_data_requirement('energy', 1, atomic=False, must=False, high_prec=True)
-        add_data_requirement('force',  3, atomic=True,  must=False, high_prec=False)
-        add_data_requirement('virial', 9, atomic=False, must=False, high_prec=False)
-        add_data_requirement('atom_ener', 1, atomic=True, must=False, high_prec=False)
-        add_data_requirement('atom_pref', 1, atomic=True, must=False, high_prec=False, repeat=3)
+        add_data_requirement('dos', self.numb_dos, atomic=False, must=True, high_prec=True)
+        add_data_requirement('atom_dos', self.numb_dos, atomic=True, must=False, high_prec=True)
 
     def build (self, 
                learning_rate,
@@ -53,75 +52,67 @@ class EnerStdLoss () :
                model_dict,
                label_dict,
                suffix):        
-        energy = model_dict['energy']
-        force = model_dict['force']
-        virial = model_dict['virial']
-        atom_ener = model_dict['atom_ener']
-        energy_hat = label_dict['energy']
-        force_hat = label_dict['force']
-        virial_hat = label_dict['virial']
-        atom_ener_hat = label_dict['atom_ener']
-        atom_pref = label_dict['atom_pref']
-        find_energy = label_dict['find_energy']
-        find_force = label_dict['find_force']
-        find_virial = label_dict['find_virial']
-        find_atom_ener = label_dict['find_atom_ener']                
-        find_atom_pref = label_dict['find_atom_pref']                
+        # model_dict: from model.build
+        dos = model_dict['dos']
+        atom_dos = model_dict['atom_dos']
+        # label_dict: tf.placeholder -> feed
+        dos_hat = label_dict['dos']
+        atom_dos_hat = label_dict['atom_dos']
+        
+        find_dos = label_dict['find_dos']
+        find_atom_dos = label_dict['find_atom_dos']                               
 
-        l2_ener_loss = tf.reduce_mean( tf.square(energy - energy_hat), name='l2_'+suffix)
+        
+        dos_reshape = tf.reshape (dos, [-1, self.numb_dos])
+        dos_hat_reshape = tf.reshape (dos_hat, [-1, self.numb_dos])
+        # mayby we should set: dos_reshape = tf.reshape(dos, [-1])
+        diff_dos = dos_hat_reshape - dos_reshape
+        l2_dos_loss = tf.reduce_mean( tf.square( diff_dos ), name='l2_dos_'+suffix)
 
-        force_reshape = tf.reshape (force, [-1])
-        force_hat_reshape = tf.reshape (force_hat, [-1])
-        atom_pref_reshape = tf.reshape (atom_pref, [-1])
-        diff_f = force_hat_reshape - force_reshape
-        if self.relative_f is not None:            
-            force_hat_3 = tf.reshape(force_hat, [-1, 3])
-            norm_f = tf.reshape(tf.norm(force_hat_3, axis = 1), [-1, 1]) + self.relative_f
-            diff_f_3 = tf.reshape(diff_f, [-1, 3])
-            diff_f_3 = diff_f_3 / norm_f
-            diff_f = tf.reshape(diff_f_3, [-1])
-        l2_force_loss = tf.reduce_mean(tf.square(diff_f), name = "l2_force_" + suffix)
-        l2_pref_force_loss = tf.reduce_mean(tf.multiply(tf.square(diff_f), atom_pref_reshape), name = "l2_pref_force_" + suffix)
+        cdf = tf.cumsum(dos_reshape, axis = 1)
+        cdf_hat = tf.cumsum(dos_hat_reshape, axis = 1)
+        diff_cdf = cdf_hat - cdf
+        l2_cdf_loss = tf.reduce_mean(tf.square(diff_cdf), name = "l2_cdf_" + suffix)
+        
+        atom_dos_reshape = tf.reshape (atom_dos, [-1, self.numb_dos])
+        atom_dos_hat_reshape = tf.reshape (atom_dos_hat, [-1, self.numb_dos])
+        diff_atom_dos = atom_dos_hat_reshape - atom_dos_reshape
+        l2_atom_dos_loss = tf.reduce_mean( tf.square( diff_atom_dos ), name='l2_atom_dos_'+suffix)
 
-        virial_reshape = tf.reshape (virial, [-1])
-        virial_hat_reshape = tf.reshape (virial_hat, [-1])
-        l2_virial_loss = tf.reduce_mean (tf.square(virial_hat_reshape - virial_reshape), name = "l2_virial_" + suffix)
-
-        atom_ener_reshape = tf.reshape (atom_ener, [-1])
-        atom_ener_hat_reshape = tf.reshape (atom_ener_hat, [-1])
-        l2_atom_ener_loss = tf.reduce_mean (tf.square(atom_ener_hat_reshape - atom_ener_reshape), name = "l2_atom_ener_" + suffix)
-
+        atom_cdf = tf.cumsum(atom_dos_reshape, axis = 1)
+        atom_cdf_hat = tf.cumsum(atom_dos_hat_reshape, axis = 1)
+        diff_atom_cdf = atom_cdf_hat - atom_cdf
+        l2_atom_cdf_loss = tf.reduce_mean(tf.square(diff_atom_cdf), name = "l2_atom_cdf_" + suffix)        
+        
         atom_norm  = 1./ global_cvt_2_tf_float(natoms[0]) 
         atom_norm_ener  = 1./ global_cvt_2_ener_float(natoms[0]) 
-        pref_e = global_cvt_2_ener_float(find_energy * (self.limit_pref_e + (self.start_pref_e - self.limit_pref_e) * learning_rate / self.starter_learning_rate) )
-        pref_f = global_cvt_2_tf_float(find_force * (self.limit_pref_f + (self.start_pref_f - self.limit_pref_f) * learning_rate / self.starter_learning_rate) )
-        pref_v = global_cvt_2_tf_float(find_virial * (self.limit_pref_v + (self.start_pref_v - self.limit_pref_v) * learning_rate / self.starter_learning_rate) )
-        pref_ae= global_cvt_2_tf_float(find_atom_ener * (self.limit_pref_ae+ (self.start_pref_ae-self.limit_pref_ae) * learning_rate / self.starter_learning_rate) )
-        pref_pf= global_cvt_2_tf_float(find_atom_pref * (self.limit_pref_pf+ (self.start_pref_pf-self.limit_pref_pf) * learning_rate / self.starter_learning_rate) )
+        
+        pref_dos = global_cvt_2_ener_float(find_dos * (self.limit_pref_dos + (self.start_pref_dos - self.limit_pref_dos) * learning_rate / self.starter_learning_rate) )
+        pref_cdf =  global_cvt_2_ener_float(find_cdf * (self.limit_pref_cdf + (self.start_pref_dos - self.limit_pref_cdf) * learning_rate / self.starter_learning_rate) )
+        pref_ados = global_cvt_2_ener_float(find_ados * (self.limit_pref_ados + (self.start_pref_ados - self.limit_pref_ados) * learning_rate / self.starter_learning_rate) )
+        pref_acdf =  global_cvt_2_ener_float(find_acdf * (self.limit_pref_acdf + (self.start_pref_ados - self.limit_pref_acdf) * learning_rate / self.starter_learning_rate) )
 
         l2_loss = 0
         more_loss = {}
-        if self.has_e :
-            l2_loss += atom_norm_ener * (pref_e * l2_ener_loss)
-        more_loss['l2_ener_loss'] = l2_ener_loss
-        if self.has_f :
-            l2_loss += global_cvt_2_ener_float(pref_f * l2_force_loss)
-        more_loss['l2_force_loss'] = l2_force_loss
-        if self.has_v :
-            l2_loss += global_cvt_2_ener_float(atom_norm * (pref_v * l2_virial_loss))
-        more_loss['l2_virial_loss'] = l2_virial_loss
-        if self.has_ae :
-            l2_loss += global_cvt_2_ener_float(pref_ae * l2_atom_ener_loss)
-        more_loss['l2_atom_ener_loss'] = l2_atom_ener_loss
-        if self.has_pf :
-            l2_loss += global_cvt_2_ener_float(pref_pf * l2_pref_force_loss)
-        more_loss['l2_pref_force_loss'] = l2_pref_force_loss
-
+        if self.has_dos :
+            l2_loss += atom_norm_ener * (pref_dos * l2_dos_loss)
+        more_loss['l2_dos_loss'] = l2_dos_loss
+        if self.has_cdf :
+            l2_loss += atom_norm_ener * (pref_cdf * l2_cdf_loss)
+        more_loss['l2_cdf_loss'] = l2_cdf_loss        
+        if self.has_ados :
+            l2_loss += global_cvt_2_ener_float(pref_ados * l2_atom_dos_loss)
+        more_loss['l2_atom_dos_loss'] = l2_atom_dos_loss       
+        if self.has_acdf :
+            l2_loss += global_cvt_2_ener_float(pref_acdf * l2_atom_cdf_loss)
+        more_loss['l2_atom_cdf_loss'] = l2_atom_cdf_loss 
+        
         # only used when tensorboard was set as true
         self.l2_loss_summary = tf.summary.scalar('l2_loss', tf.sqrt(l2_loss))
-        self.l2_loss_ener_summary = tf.summary.scalar('l2_ener_loss', global_cvt_2_tf_float(tf.sqrt(l2_ener_loss)) / global_cvt_2_tf_float(natoms[0]))
-        self.l2_loss_force_summary = tf.summary.scalar('l2_force_loss', tf.sqrt(l2_force_loss))
-        self.l2_loss_virial_summary = tf.summary.scalar('l2_virial_loss', tf.sqrt(l2_virial_loss) / global_cvt_2_tf_float(natoms[0]))
+        self.l2_loss_dos_summary = tf.summary.scalar('l2_dos_loss', global_cvt_2_tf_float(tf.sqrt(l2_dos_loss)) / global_cvt_2_tf_float(natoms[0]))
+        self.l2_loss_cdf_summary = tf.summary.scalar('l2_cdf_loss', global_cvt_2_tf_float(tf.sqrt(l2_cdf_loss)) / global_cvt_2_tf_float(natoms[0]))
+        self.l2_loss_ados_summary = tf.summary.scalar('l2_atom_dos_loss', global_cvt_2_tf_float(tf.sqrt(l2_atom_dos_loss)) / global_cvt_2_tf_float(natoms[0]))
+        self.l2_loss_acdf_summary = tf.summary.scalar('l2_atom_cdf_loss', global_cvt_2_tf_float(tf.sqrt(l2_atom_cdf_loss)) / global_cvt_2_tf_float(natoms[0]))        
 
         self.l2_l = l2_loss
         self.l2_more = more_loss
@@ -131,16 +122,14 @@ class EnerStdLoss () :
         prop_fmt = '   %11s %11s'
         print_str = ''
         print_str += prop_fmt % ('rmse_tst', 'rmse_trn')
-        if self.has_e :
-            print_str += prop_fmt % ('rmse_e_tst', 'rmse_e_trn')
-        if self.has_ae :
-            print_str += prop_fmt % ('rmse_ae_tst', 'rmse_ae_trn')
-        if self.has_f :
-            print_str += prop_fmt % ('rmse_f_tst', 'rmse_f_trn')
-        if self.has_v :
-            print_str += prop_fmt % ('rmse_v_tst', 'rmse_v_trn')
-        if self.has_pf :
-            print_str += prop_fmt % ('rmse_pf_tst', 'rmse_pf_trn')
+        if self.has_dos :
+            print_str += prop_fmt % ('rmse_dos_tst', 'rmse_dos_trn')
+        if self.has_cdf :
+            print_str += prop_fmt % ('rmse_cdf_tst', 'rmse_cdf_trn')
+        if self.has_ados :
+            print_str += prop_fmt % ('rmse_ados_tst', 'rmse_ados_trn')
+        if self.has_acdf :
+            print_str += prop_fmt % ('rmse_acdf_tst', 'rmse_acdf_trn')
         return print_str
 
     def print_on_training(self, 
@@ -153,21 +142,20 @@ class EnerStdLoss () :
 
         run_data = [
             self.l2_l,
-            self.l2_more['l2_ener_loss'],
-            self.l2_more['l2_force_loss'],
-            self.l2_more['l2_virial_loss'],
-            self.l2_more['l2_atom_ener_loss'],
-            self.l2_more['l2_pref_force_loss']
+            self.l2_more['l2_dos_loss'],
+            self.l2_more['l2_cdf_loss'],
+            self.l2_more['l2_ados_loss'],
+            self.l2_more['l2_acdf_loss']
         ]
 
         # first train data
         train_out = sess.run(run_data, feed_dict=feed_dict_batch)
-        error_train, error_e_train, error_f_train, error_v_train, error_ae_train, error_pf_train = train_out
+        error_train, error_dos_train, error_cdf_train, error_ados_train, error_acdf_train = train_out
 
         # than test data, if tensorboard log writter is present, commpute summary
         # and write tensorboard logs
         if tb_writer:
-            summary_merged_op = tf.summary.merge([self.l2_loss_summary, self.l2_loss_ener_summary, self.l2_loss_force_summary, self.l2_loss_virial_summary])
+            summary_merged_op = tf.summary.merge([self.l2_loss_summary, self.l2_loss_dos_summary, self.l2_loss_cdf_summary, self.l2_loss_ados_summary, self.l2_loss_acdf_summary])
             run_data.insert(0, summary_merged_op)
 
         test_out = sess.run(run_data, feed_dict=feed_dict_test)
@@ -176,21 +164,20 @@ class EnerStdLoss () :
             summary = test_out.pop(0)
             tb_writer.add_summary(summary, cur_batch)
 
-        error_test, error_e_test, error_f_test, error_v_test, error_ae_test, error_pf_test = test_out
+        error_test, error_dos_test, error_cdf_test, error_ados_test, error_acdf_test = test_out
 
-        
+
         print_str = ""
         prop_fmt = "   %11.2e %11.2e"
         print_str += prop_fmt % (np.sqrt(error_test), np.sqrt(error_train))
-        if self.has_e :
-            print_str += prop_fmt % (np.sqrt(error_e_test) / natoms[0], np.sqrt(error_e_train) / natoms[0])
-        if self.has_ae :
-            print_str += prop_fmt % (np.sqrt(error_ae_test), np.sqrt(error_ae_train))
-        if self.has_f :
-            print_str += prop_fmt % (np.sqrt(error_f_test), np.sqrt(error_f_train))
-        if self.has_v :
-            print_str += prop_fmt % (np.sqrt(error_v_test) / natoms[0], np.sqrt(error_v_train) / natoms[0])
-        if self.has_pf:
-            print_str += prop_fmt % (np.sqrt(error_pf_test), np.sqrt(error_pf_train))
+        if self.has_dos :
+            print_str += prop_fmt % (np.sqrt(error_dos_test) / natoms[0], np.sqrt(error_dos_train) / natoms[0])
+        if self.has_cdf :
+            print_str += prop_fmt % (np.sqrt(error_cdf_test) / natoms[0], np.sqrt(error_cdf_train) / natoms[0])
+        if self.has_ados :
+            print_str += prop_fmt % (np.sqrt(error_ados_test) / natoms[0], np.sqrt(error_ados_train) / natoms[0])
+        if self.has_acdf :
+            print_str += prop_fmt % (np.sqrt(error_acdf_test) / natoms[0], np.sqrt(error_acdf_train) / natoms[0])
+         
 
         return print_str    
