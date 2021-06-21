@@ -18,7 +18,7 @@ from deepmd.descriptor import DescrptSeR
 from deepmd.descriptor import DescrptSeAR
 from deepmd.descriptor import DescrptHybrid
 from deepmd.model import EnerModel, DOSModel, WFCModel, DipoleModel, PolarModel, GlobalPolarModel
-from deepmd.loss import EnerStdLoss, EnerDipoleLoss, TensorLoss
+from deepmd.loss import EnerStdLoss, DOSLoss, EnerDipoleLoss, TensorLoss
 from deepmd.utils.learning_rate import LearningRateExp
 from deepmd.utils.neighbor_stat import NeighborStat
 
@@ -217,6 +217,11 @@ class DPTrainer (object):
                 self.loss = EnerDipoleLoss(**loss_param)
             else:
                 raise RuntimeError('unknow loss type')
+        elif fitting_type == 'dos':
+            loss_param.pop('type', None)
+            loss_param['starter_learning_rate'] = self.lr.start_lr()
+            loss_param['numb_dos'] = self.fitting.get_numb_dos()
+            self.loss = DOSLoss(**loss_param)          
         elif fitting_type == 'wfc':
             self.loss = TensorLoss(loss_param, 
                                    model = self.model, 
@@ -279,7 +284,7 @@ class DPTrainer (object):
         self.sys_probs = tr_data['sys_probs']        
         self.auto_prob_style = tr_data['auto_prob_style']        
         self.useBN = False
-        if fitting_type == 'ener' and  self.fitting.get_numb_fparam() > 0 :
+        if (fitting_type == 'ener' or fitting_type == 'dos') and  self.fitting.get_numb_fparam() > 0 :
             self.numb_fparam = self.fitting.get_numb_fparam()
         else :
             self.numb_fparam = 0
@@ -499,6 +504,11 @@ class DPTrainer (object):
             batch_data = data.get_batch (sys_probs = self.sys_probs,
                                          auto_prob_style = self.auto_prob_style
             )
+            
+            if self.model.model_type == 'dos':
+                if self.loss.log_fit:
+                    batch_data['dos'] = np.log(batch_data['dos'] + self.loss.protect_value)
+                    
             feed_dict_batch = {}
             for kk in batch_data.keys():
                 if kk == 'find_type' or kk == 'type' :
