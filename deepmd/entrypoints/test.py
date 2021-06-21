@@ -399,7 +399,7 @@ def test_dos(
     """
     data.add("dos", dp.numb_dos, atomic=False, must=True, high_prec=True)
     if has_atom_dos:
-        data.add("atom_dos", dp.numb_dos,  atomic=True, must=False, high_precTrue))
+        data.add("atom_dos", dp.numb_dos,  atomic=True, must=False, high_prec=True)
         
     if dp.get_dim_fparam() > 0:
         data.add(
@@ -482,6 +482,16 @@ def test_dos(
  
     return [l2dosa], [dos.size]
 
+def print_dos_sys_avg(avg: np.ndarray):
+    """Print errors summary for energy type potential.
+
+    Parameters
+    ----------
+    avg : np.ndarray
+        array with summaries
+    """
+    log.info(f"DOS  RMSE/Natoms : {avg[0]:e} Occupation/eV")
+   
 
 def run_test(dp: "DeepTensor", test_data: dict, numb_test: int):
     """Run tests.
