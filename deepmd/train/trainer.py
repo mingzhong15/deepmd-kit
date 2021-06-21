@@ -17,7 +17,7 @@ from deepmd.descriptor import DescrptSeAEf
 from deepmd.descriptor import DescrptSeR
 from deepmd.descriptor import DescrptSeAR
 from deepmd.descriptor import DescrptHybrid
-from deepmd.model import EnerModel, WFCModel, DipoleModel, PolarModel, GlobalPolarModel
+from deepmd.model import EnerModel, DOSModel, WFCModel, DipoleModel, PolarModel, GlobalPolarModel
 from deepmd.loss import EnerStdLoss, EnerDipoleLoss, TensorLoss
 from deepmd.utils.learning_rate import LearningRateExp
 from deepmd.utils.neighbor_stat import NeighborStat
@@ -148,6 +148,15 @@ class DPTrainer (object):
                 model_param.get('sw_rmin'),
                 model_param.get('sw_rmax')
             )
+        elif fitting_type == 'dos':
+            self.model = DOSModel(
+                self.descrpt, 
+                self.fitting, 
+                model_param.get('type_map'),
+                model_param.get('data_stat_nbatch', 10),
+                model_param.get('data_stat_protect', 1e-2)
+            )
+            
         # elif fitting_type == 'wfc':
         #     self.model = WFCModel(model_param, self.descrpt, self.fitting)
         elif fitting_type == 'dipole':
