@@ -387,7 +387,7 @@ def test_dos(
         munber of tests to do
     detail_file : Optional[str]
         file where test details will be output
-    has_atom_ener : bool
+    has_atom_dos : bool
         whether per atom quantities should be computed
     append_detail : bool, optional
         if true append output detail file, by default False
@@ -434,7 +434,7 @@ def test_dos(
         atype,
         fparam=fparam,
         aparam=aparam,
-        atomic=has_atom_ener,
+        atomic=has_atom_dos,
     )
     dos = ret[0]
 
@@ -448,7 +448,7 @@ def test_dos(
     l2dosa = l2dos / natoms
     if has_atom_dos:
         l2ados = l2err(
-            test_data["atom_dos"][:numb_test] - ados)
+            test_data["atom_dos"][:numb_test] - ados
         )
 
     # print ("# energies: %s" % energy)
