@@ -56,6 +56,13 @@ def _make_node_names(model_type: str, modifier_type: Optional[str] = None) -> Li
             "fitting_attr/dfparam",
             "fitting_attr/daparam",
         ]
+    elif model_type == 'dos':
+        nodes +=[
+        "o_dos",
+        "fitting_attr/numb_dos",
+        "fitting_attr/dfparam",
+        "fitting_attr/daparam",    
+        ]
     elif model_type == "wfc":
         nodes += [
             "o_wfc",
