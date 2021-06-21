@@ -9,7 +9,7 @@ from deepmd.common import expand_sys_str
 from deepmd.utils.data import DeepmdData
 
 if TYPE_CHECKING:
-    from deepmd.infer import DeepDipole, DeepPolar, DeepPot, DeepWFC
+    from deepmd.infer import DeepDipole, DeepPolar, DeepPot, DeepDOS, DeepWFC
     from deepmd.infer.deep_eval import DeepTensor
 
 __all__ = ["test"]
@@ -86,6 +86,8 @@ def test(
                 atomic,
                 append_detail=(cc != 0),
             )
+        elif dp.model_type == "dos":
+            err, siz = test_dos(dp, data, system, numb_test, detail_file, atomic, append_detail=(cc != 0) )
         elif dp.model_type == "dipole":
             err, siz = test_dipole(dp, data, numb_test, detail_file, atomic)
         elif dp.model_type == "polar":
@@ -108,6 +110,8 @@ def test(
         log.info(f"# number of systems : {len(all_sys)}")
         if dp.model_type == "ener":
             print_ener_sys_avg(avg_err)
+        elif dp.model_type == "dos":
+            print_dos_sys_ave(avg_err)
         elif dp.model_type == "dipole":
             print_dipole_sys_avg(avg_err)
         elif dp.model_type == "polar":
@@ -358,6 +362,125 @@ def print_ener_sys_avg(avg: np.ndarray):
     log.info(f"Energy RMSE/Natoms : {avg[0]:e} eV")
     log.info(f"Force  RMSE        : {avg[1]:e} eV/A")
     log.info(f"Virial RMSE/Natoms : {avg[2]:e} eV")
+    
+    
+def test_dos(
+    dp: "DeepDOS",
+    data: DeepmdData,
+    system: str,
+    numb_test: int,
+    detail_file: Optional[str],
+    has_atom_dos: bool,
+    append_detail: bool = False,
+) -> Tuple[List[np.ndarray], List[int]]:
+    """Test DOS type model.
+
+    Parameters
+    ----------
+    dp : DeepDOS
+        instance of deep potential
+    data: DeepmdData
+        data container object
+    system : str
+        system directory
+    numb_test : int
+        munber of tests to do
+    detail_file : Optional[str]
+        file where test details will be output
+    has_atom_ener : bool
+        whether per atom quantities should be computed
+    append_detail : bool, optional
+        if true append output detail file, by default False
+
+    Returns
+    -------
+    Tuple[List[np.ndarray], List[int]]
+        arrays with results and their shapes
+    """
+    data.add("dos", dp.numb_dos, atomic=False, must=True, high_prec=True)
+    if has_atom_dos:
+        data.add("atom_dos", dp.numb_dos,  atomic=True, must=False, high_precTrue))
+        
+    if dp.get_dim_fparam() > 0:
+        data.add(
+            "fparam", dp.get_dim_fparam(), atomic=False, must=True, high_prec=False
+        )
+    if dp.get_dim_aparam() > 0:
+        data.add("aparam", dp.get_dim_aparam(), atomic=True, must=True, high_prec=False)
+
+    test_data = data.get_test()
+    natoms = len(test_data["type"][0])
+    nframes = test_data["box"].shape[0]
+    numb_test = min(nframes, numb_test)
+
+    coord = test_data["coord"][:numb_test].reshape([numb_test, -1])
+    box = test_data["box"][:numb_test]
+   
+    if not data.pbc:
+        box = None
+    atype = test_data["type"][0]
+    if dp.get_dim_fparam() > 0:
+        fparam = test_data["fparam"][:numb_test]
+    else:
+        fparam = None
+    if dp.get_dim_aparam() > 0:
+        aparam = test_data["aparam"][:numb_test]
+    else:
+        aparam = None
+
+    ret = dp.eval(
+        coord,
+        box,
+        atype,
+        fparam=fparam,
+        aparam=aparam,
+        atomic=has_atom_ener,
+    )
+    dos = ret[0]
+
+    dos = dos.reshape([numb_test, dp.numb_dos])
+
+    if has_atom_dos:
+        ados = ret[1]
+        ados = ados.reshape([numb_test, dp.numb_dos])
+
+    l2dos = l2err(dos- test_data["dos"][:numb_test])
+    l2dosa = l2dos / natoms
+    if has_atom_dos:
+        l2ados = l2err(
+            test_data["atom_dos"][:numb_test] - ados)
+        )
+
+    # print ("# energies: %s" % energy)
+    log.info(f"# number of test data : {numb_test:d} ")
+    log.info(f"DOS RMSE        : {l2dos:e} Occupation/eV")
+    log.info(f"DOS RMSE/Natoms : {l2dosa:e} Occupation/eV")
+
+    if has_atom_dos:
+        log.info(f"Atomic DOS RMSE   : {l2ados:e} Occupation/eV")
+
+    if detail_file is not None:
+        detail_path = Path(detail_file)
+
+        for ii in range(numb_test):
+            test_out = test_data["dos"][ii].reshape(-1,1)
+            pred_out = dos[ii].reshape(-1,1)
+        
+            save_txt_file(
+                detail_path.with_suffix( str(ii) ),
+                np.hstack((test_out, pred_out)),
+                header="%s: data_dos pred_dos" % system,
+                append=append_detail,
+            )
+            
+            #if has_atom_dos:
+             #   test_out = test_data["ados"][ii].reshape(-1,1)
+            #    pred_out = ados[ii].reshape(-1,1)
+            # ==========================
+            # we  aim to output the LDOS for every atom in the system
+            # ==========================
+ 
+    return [l2dosa], [dos.size]
 
 
 def run_test(dp: "DeepTensor", test_data: dict, numb_test: int):
