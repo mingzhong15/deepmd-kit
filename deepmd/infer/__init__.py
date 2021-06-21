@@ -30,7 +30,7 @@ def DeepPotential(
     model_file: Union[str, Path],
     load_prefix: str = "load",
     default_tf_graph: bool = False,
-) -> Union[DeepDipole, DeepGlobalPolar, DeepPolar, DeepPot, DeepWFC]:
+) -> Union[DeepDipole, DeepGlobalPolar, DeepPolar, DeepPot, DeepDOS, DeepWFC]:
     """Factory function that will inialize appropriate potential read from `model_file`.
 
     Parameters
