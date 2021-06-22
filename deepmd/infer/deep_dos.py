@@ -270,7 +270,6 @@ class DeepDOS(DeepEval):
             ados = v_out[1]
 
         # reverse map of the outputs
-        dos  = self.reverse_map(np.reshape(dos, [nframes,-1,self.numb_dos]), imap)
         if atomic :
             ados  = self.reverse_map(np.reshape(ados, [nframes,-1,self.numb_dos]), imap)
 
