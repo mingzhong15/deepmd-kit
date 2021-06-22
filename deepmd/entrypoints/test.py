@@ -466,19 +466,15 @@ def test_dos(
             test_out = test_data["dos"][ii].reshape(-1,1)
             pred_out = dos[ii].reshape(-1,1)
         
-            save_txt_file(
-                detail_path.with_suffix( str(ii) ),
-                np.hstack((test_out, pred_out)),
-                header="%s: data_dos pred_dos" % system,
-                append=append_detail,
-            )
+            np.savetxt( detail_file+str(ii)+'.dos.out', np.hstack((test_out, pred_out)) )
             
-            #if has_atom_dos:
-             #   test_out = test_data["ados"][ii].reshape(-1,1)
-            #    pred_out = ados[ii].reshape(-1,1)
-            # ==========================
-            # we  aim to output the LDOS for every atom in the system
-            # ==========================
+            if has_atom_dos:
+               
+                test_out = test_data["ados"][ii].reshape(-1,1)
+                pred_out = ados[ii].reshape(-1,1)
+
+                np.savetxt( detail_file+str(ii)+'.ados.out', np.hstack((test_out, pred_out)) )                       
+
  
     return [l2dosa], [dos.size]
 
