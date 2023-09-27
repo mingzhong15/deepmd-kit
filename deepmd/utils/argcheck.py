@@ -432,6 +432,11 @@ def descrpt_se_atten_v2_args():
     ]
 
 
+@descrpt_args_plugin.register("se_a_ebd_v2", alias=["se_a_tpe_v2"])
+def descrpt_se_a_ebd_v2_args():
+    return descrpt_se_a_args()
+
+
 @descrpt_args_plugin.register("se_a_mask")
 def descrpt_se_a_mask_args():
     doc_sel = 'This parameter sets the number of selected neighbors for each type of atom. It can be:\n\n\
@@ -1203,7 +1208,7 @@ def loss_ener_spin():
     doc_start_pref_pf = start_pref("atom_pref")
     doc_limit_pref_pf = limit_pref("atom_pref")
     doc_relative_f = "If provided, relative force error will be used in the loss. The difference of force will be normalized by the magnitude of the force in the label with a shift given by `relative_f`, i.e. DF_i / ( || F || + relative_f ) with DF denoting the difference between prediction and label and || F || denoting the L2 norm of the label."
-    doc_enable_atom_ener_coeff = "If true, the energy will be computed as \sum_i c_i E_i. c_i should be provided by file atom_ener_coeff.npy in each data system, otherwise it's 1."
+    doc_enable_atom_ener_coeff = r"If true, the energy will be computed as \sum_i c_i E_i. c_i should be provided by file atom_ener_coeff.npy in each data system, otherwise it's 1."
     return [
         Argument(
             "start_pref_e",
