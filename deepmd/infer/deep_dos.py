@@ -411,13 +411,13 @@ class DeepDOS(DeepEval):
         # reverse map of the outputs
         if atomic:
             atom_dos = self.reverse_map(
-                atom_dos,  # 输入形状已经是 [nframes, natoms, numb_dos]
-                imap
+                np.reshape(atom_dos, [nframes, -1, self.numb_dos]), imap
             )
             dos = np.sum(atom_dos, axis=1)
 
         dos = np.reshape(dos, [nframes, self.numb_dos])
         if atomic:
+            atom_dos = np.reshape(atom_dos, [nframes, natoms, self.numb_dos])
             return dos, atom_dos
         else:
             return dos
