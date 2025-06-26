@@ -2,17 +2,16 @@ if(DEFINED LAMMPS_SOURCE_ROOT OR DEFINED LAMMPS_VERSION)
   message(STATUS "enable LAMMPS plugin mode")
   add_library(lammps_interface INTERFACE)
   if(DEFINED LAMMPS_VERSION)
-    cmake_minimum_required(VERSION 3.11)
+    cmake_minimum_required(VERSION 3.14)
     include(FetchContent)
     FetchContent_Declare(
       lammps_download
       GIT_REPOSITORY https://github.com/lammps/lammps
       GIT_TAG ${LAMMPS_VERSION})
-    FetchContent_GetProperties(lammps_download)
-    if(NOT lammps_download_POPULATED)
-      FetchContent_Populate(lammps_download)
-      set(LAMMPS_SOURCE_ROOT ${lammps_download_SOURCE_DIR})
-    endif()
+    message(STATUS "STARTING DOWNLOAD LAMMPS TO: "
+                   ${CMAKE_BINARY_DIR}/_deps/lammps_download-src)
+    FetchContent_MakeAvailable(lammps_download)
+    set(LAMMPS_SOURCE_ROOT ${CMAKE_BINARY_DIR}/_deps/lammps_download-src)
   endif()
   set(LAMMPS_HEADER_DIR ${LAMMPS_SOURCE_ROOT}/src)
   message(STATUS "LAMMPS_HEADER_DIR is ${LAMMPS_HEADER_DIR}")
@@ -49,9 +48,16 @@ if(DEFINED LAMMPS_SOURCE_ROOT OR DEFINED LAMMPS_VERSION)
   configure_file("../deepmd_version.h.in"
                  "${CMAKE_CURRENT_BINARY_DIR}/deepmd_version.h" @ONLY)
 
-  file(GLOB LMP_SRC deepmdplugin.cpp ../*.cpp
-       ${LAMMPS_SOURCE_ROOT}/src/kspace.cpp # for pppm_dplr
-       ${LAMMPS_SOURCE_ROOT}/src/KSPACE/pppm.cpp)
+  file(
+    GLOB
+    LMP_SRC
+    deepmdplugin.cpp
+    ../*.cpp
+    ${LAMMPS_SOURCE_ROOT}/src/KSPACE/pppm.cpp # for pppm_dplr
+    ${LAMMPS_SOURCE_ROOT}/src/KSPACE/fft3d.cpp
+    ${LAMMPS_SOURCE_ROOT}/src/KSPACE/fft3d_wrap.cpp
+    ${LAMMPS_SOURCE_ROOT}/src/KSPACE/remap.cpp
+    ${LAMMPS_SOURCE_ROOT}/src/KSPACE/remap_wrap.cpp)
   if(LAMMPS_VERSION_NUMBER GREATER 20210831)
     list(APPEND LMP_SRC ${LAMMPS_SOURCE_ROOT}/src/EXTRA-FIX/fix_ttm.cpp
     )# for ttm
@@ -92,7 +98,7 @@ if(DEFINED LAMMPS_SOURCE_ROOT OR DEFINED LAMMPS_VERSION)
                                                 "-Wl,-undefined,dynamic_lookup")
   else()
     set_target_properties(
-      ${libname} PROPERTIES INSTALL_RPATH "$ORIGIN;${TensorFlow_LIBRARY_PATH}"
+      ${libname} PROPERTIES INSTALL_RPATH "$ORIGIN;${BACKEND_LIBRARY_PATH}"
                             LINK_FLAGS "-rdynamic")
   endif()
   target_compile_definitions(
@@ -119,7 +125,7 @@ if(DEFINED LAMMPS_SOURCE_ROOT OR DEFINED LAMMPS_VERSION)
       install(
         CODE "execute_process( \
         COMMAND ${CMAKE_COMMAND} -E create_symlink \
-		../${CMAKE_SHARED_LIBRARY_PREFIX}${libname}${CMAKE_SHARED_LIBRARY_SUFFIX} \
+		../${CMAKE_SHARED_MODULE_PREFIX}${libname}${CMAKE_SHARED_MODULE_SUFFIX} \
         ${CMAKE_INSTALL_PREFIX}/lib/${libname}/${PLUGINNAME}   \
         )")
     endif()

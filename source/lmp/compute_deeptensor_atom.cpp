@@ -136,6 +136,7 @@ void ComputeDeeptensorAtom::compute_peratom() {
   neighbor->build_one(list);
   deepmd_compat::InputNlist lmp_list(list->inum, list->ilist, list->numneigh,
                                      list->firstneigh);
+  lmp_list.set_mask(NEIGHMASK);
 
   // declare outputs
   std::vector<VALUETYPE> gtensor, force, virial, atensor, avirial;
@@ -178,6 +179,6 @@ void ComputeDeeptensorAtom::compute_peratom() {
 ------------------------------------------------------------------------- */
 
 double ComputeDeeptensorAtom::memory_usage() {
-  double bytes = nmax * size_peratom_cols * sizeof(double);
+  double bytes = static_cast<size_t>(nmax) * size_peratom_cols * sizeof(double);
   return bytes;
 }

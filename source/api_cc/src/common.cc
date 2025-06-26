@@ -3,6 +3,11 @@
 
 #include <fcntl.h>
 
+#include <cstring>
+#include <fstream>
+#include <sstream>
+#include <string>
+
 #include "AtomMap.h"
 #include "device.h"
 #if defined(_WIN32)
@@ -20,10 +25,13 @@
 // not windows
 #include <dlfcn.h>
 #endif
+#ifdef BUILD_TENSORFLOW
+#include "commonTF.h"
 #include "google/protobuf/io/zero_copy_stream_impl.h"
 #include "google/protobuf/text_format.h"
 
 using namespace tensorflow;
+#endif
 
 static std::vector<std::string> split(const std::string& input_,
                                       const std::string& delimiter) {
@@ -171,14 +179,15 @@ void deepmd::select_real_atoms_coord(std::vector<VALUETYPE>& dcoord,
   // resize to nall_real
   nall_real = bkw_map.size();
   nloc_real = nall_real - nghost_real;
-  dcoord.resize(nframes * nall_real * 3);
+  dcoord.resize(static_cast<size_t>(nframes) * nall_real * 3);
   datype.resize(nall_real);
   // fwd map
   select_map<VALUETYPE>(dcoord, dcoord_, fwd_map, 3, nframes, nall_real, nall);
   select_map<int>(datype, datype_, fwd_map, 1);
   // aparam
   if (daparam > 0) {
-    aparam.resize(nframes * (aparam_nall ? nall_real : nloc_real));
+    aparam.resize(static_cast<size_t>(nframes) *
+                  (aparam_nall ? nall_real : nloc_real));
     select_map<VALUETYPE>(aparam, aparam_, fwd_map, daparam, nframes,
                           (aparam_nall ? nall_real : nloc_real),
                           (aparam_nall ? nall : (nall - nghost)));
@@ -223,8 +232,9 @@ template void deepmd::select_real_atoms_coord<float>(
     const int& nall,
     const bool aparam_nall);
 
-void deepmd::NeighborListData::copy_from_nlist(const InputNlist& inlist) {
-  int inum = inlist.inum;
+void deepmd::NeighborListData::copy_from_nlist(const InputNlist& inlist,
+                                               const int natoms) {
+  int inum = natoms >= 0 ? natoms : inlist.inum;
   ilist.resize(inum);
   jlist.resize(inum);
   memcpy(&ilist[0], inlist.ilist, inum * sizeof(int));
@@ -232,6 +242,9 @@ void deepmd::NeighborListData::copy_from_nlist(const InputNlist& inlist) {
     int jnum = inlist.numneigh[ii];
     jlist[ii].resize(jnum);
     memcpy(&jlist[ii][0], inlist.firstneigh[ii], jnum * sizeof(int));
+    for (int jj = 0; jj < jnum; ++jj) {
+      jlist[ii][jj] &= inlist.mask;
+    }
   }
 }
 
@@ -284,6 +297,16 @@ void deepmd::NeighborListData::shuffle_exclude_empty(
   ilist = new_ilist;
   jlist = new_jlist;
 }
+void deepmd::NeighborListData::padding() {
+  size_t max_length = 0;
+  for (const auto& row : jlist) {
+    max_length = std::max(max_length, row.size());
+  }
+
+  for (int i = 0; i < jlist.size(); i++) {
+    jlist[i].resize(max_length, -1);
+  }
+}
 
 void deepmd::NeighborListData::make_inlist(InputNlist& inlist) {
   int nloc = ilist.size();
@@ -299,12 +322,14 @@ void deepmd::NeighborListData::make_inlist(InputNlist& inlist) {
   inlist.firstneigh = &firstneigh[0];
 }
 
+#ifdef BUILD_TENSORFLOW
 void deepmd::check_status(const tensorflow::Status& status) {
   if (!status.ok()) {
     std::cout << status.ToString() << std::endl;
     throw deepmd::tf_exception(status.ToString());
   }
 }
+#endif
 
 void throw_env_not_set_warning(std::string env_name) {
   std::cerr << "DeePMD-kit WARNING: Environmental variable " << env_name
@@ -319,23 +344,36 @@ void deepmd::get_env_nthreads(int& num_intra_nthreads,
   num_intra_nthreads = 0;
   num_inter_nthreads = 0;
   const char* env_intra_nthreads =
-      std::getenv("TF_INTRA_OP_PARALLELISM_THREADS");
+      std::getenv("DP_INTRA_OP_PARALLELISM_THREADS");
   const char* env_inter_nthreads =
+      std::getenv("DP_INTER_OP_PARALLELISM_THREADS");
+  // backward compatibility
+  const char* env_intra_nthreads_tf =
+      std::getenv("TF_INTRA_OP_PARALLELISM_THREADS");
+  const char* env_inter_nthreads_tf =
       std::getenv("TF_INTER_OP_PARALLELISM_THREADS");
   const char* env_omp_nthreads = std::getenv("OMP_NUM_THREADS");
   if (env_intra_nthreads &&
       std::string(env_intra_nthreads) != std::string("") &&
       atoi(env_intra_nthreads) >= 0) {
     num_intra_nthreads = atoi(env_intra_nthreads);
+  } else if (env_intra_nthreads_tf &&
+             std::string(env_intra_nthreads_tf) != std::string("") &&
+             atoi(env_intra_nthreads_tf) >= 0) {
+    num_intra_nthreads = atoi(env_intra_nthreads_tf);
   } else {
-    throw_env_not_set_warning("TF_INTRA_OP_PARALLELISM_THREADS");
+    throw_env_not_set_warning("DP_INTRA_OP_PARALLELISM_THREADS");
   }
   if (env_inter_nthreads &&
       std::string(env_inter_nthreads) != std::string("") &&
       atoi(env_inter_nthreads) >= 0) {
     num_inter_nthreads = atoi(env_inter_nthreads);
+  } else if (env_inter_nthreads_tf &&
+             std::string(env_inter_nthreads_tf) != std::string("") &&
+             atoi(env_inter_nthreads_tf) >= 0) {
+    num_inter_nthreads = atoi(env_inter_nthreads_tf);
   } else {
-    throw_env_not_set_warning("TF_INTER_OP_PARALLELISM_THREADS");
+    throw_env_not_set_warning("DP_INTER_OP_PARALLELISM_THREADS");
   }
   if (!(env_omp_nthreads && std::string(env_omp_nthreads) != std::string("") &&
         atoi(env_omp_nthreads) >= 0)) {
@@ -343,19 +381,57 @@ void deepmd::get_env_nthreads(int& num_intra_nthreads,
   }
 }
 
-void deepmd::load_op_library() {
-  tensorflow::Env* env = tensorflow::Env::Default();
+static inline void _load_library_path(std::string dso_path) {
 #if defined(_WIN32)
-  std::string dso_path = "deepmd_op.dll";
   void* dso_handle = LoadLibrary(dso_path.c_str());
 #else
-  std::string dso_path = "libdeepmd_op.so";
   void* dso_handle = dlopen(dso_path.c_str(), RTLD_NOW | RTLD_LOCAL);
 #endif
   if (!dso_handle) {
     throw deepmd::deepmd_exception(
         dso_path +
-        " is not found! You can add the library directory to LD_LIBRARY_PATH");
+        " is not found or fails to load! You can add the library directory to "
+        "LD_LIBRARY_PATH."
+#ifndef _WIN32
+        " Error message: " +
+        std::string(dlerror())
+#endif
+    );
+  }
+}
+
+static inline void _load_single_op_library(std::string library_name) {
+#if defined(_WIN32)
+  std::string dso_path = library_name + ".dll";
+#else
+  std::string dso_path = "lib" + library_name + ".so";
+#endif
+  _load_library_path(dso_path);
+}
+
+void deepmd::load_op_library() {
+#ifdef BUILD_TENSORFLOW
+  _load_single_op_library("deepmd_op");
+#endif
+#ifdef BUILD_PYTORCH
+  _load_single_op_library("deepmd_op_pt");
+#endif
+  // load customized plugins
+  const char* env_customized_plugins = std::getenv("DP_PLUGIN_PATH");
+  if (env_customized_plugins) {
+#if !defined(_WIN32)
+    // note: ":" is a string and ':' is a char
+    std::string pathvarsep = ":";
+#else
+    std::string pathvarsep = ";";
+#endif
+    std::string plugin_path(env_customized_plugins);
+    std::vector<std::string> plugin_paths = split(plugin_path, pathvarsep);
+    for (const auto& plugin : plugin_paths) {
+      std::cerr << "Loading customized plugin defined in DP_PLUGIN_PATH: "
+                << plugin << std::endl;
+      _load_library_path(plugin);
+    }
   }
 }
 
@@ -367,6 +443,7 @@ std::string deepmd::name_prefix(const std::string& scope) {
   return prefix;
 }
 
+#ifdef BUILD_TENSORFLOW
 template <typename MODELTYPE, typename VALUETYPE>
 int deepmd::session_input_tensors(
     std::vector<std::pair<std::string, Tensor>>& input_tensors,
@@ -380,7 +457,8 @@ int deepmd::session_input_tensors(
     const deepmd::AtomMap& atommap,
     const std::string scope,
     const bool aparam_nall) {
-  int nframes = dcoord_.size() / 3 / datype_.size();
+  // if datype.size is 0, not clear nframes; but 1 is just ok
+  int nframes = datype_.size() > 0 ? (dcoord_.size() / 3 / datype_.size()) : 1;
   int nall = datype_.size();
   int nloc = nall;
   assert(nall * 3 * nframes == dcoord_.size());
@@ -395,7 +473,7 @@ int deepmd::session_input_tensors(
 
   TensorShape coord_shape;
   coord_shape.AddDim(nframes);
-  coord_shape.AddDim(nall * 3);
+  coord_shape.AddDim(static_cast<int64_t>(nall) * 3);
   TensorShape type_shape;
   type_shape.AddDim(nframes);
   type_shape.AddDim(nall);
@@ -445,10 +523,13 @@ int deepmd::session_input_tensors(
   std::vector<VALUETYPE> dcoord(dcoord_);
   atommap.forward<VALUETYPE>(dcoord.begin(), dcoord_.begin(), 3, nframes, nall);
   std::vector<VALUETYPE> aparam_(aparam__);
-  atommap.forward<VALUETYPE>(
-      aparam_.begin(), aparam__.begin(),
-      aparam__.size() / nframes / (aparam_nall ? nall : nloc), nframes,
-      (aparam_nall ? nall : nloc));
+  if ((aparam_nall ? nall : nloc) > 0) {
+    atommap.forward<VALUETYPE>(
+        aparam_.begin(), aparam__.begin(),
+        aparam__.size() / nframes / (aparam_nall ? nall : nloc), nframes,
+        (aparam_nall ? nall : nloc));
+  }
+  // if == 0, aparam__.size should also be 0, so no need to forward
 
   for (int ii = 0; ii < nframes; ++ii) {
     for (int jj = 0; jj < nall * 3; ++jj) {
@@ -520,7 +601,8 @@ int deepmd::session_input_tensors(
     const int ago,
     const std::string scope,
     const bool aparam_nall) {
-  int nframes = dcoord_.size() / 3 / datype_.size();
+  // if datype.size is 0, not clear nframes; but 1 is just ok
+  int nframes = datype_.size() > 0 ? (dcoord_.size() / 3 / datype_.size()) : 1;
   int nall = datype_.size();
   int nloc = nall - nghost;
   assert(nall * 3 * nframes == dcoord_.size());
@@ -535,7 +617,7 @@ int deepmd::session_input_tensors(
 
   TensorShape coord_shape;
   coord_shape.AddDim(nframes);
-  coord_shape.AddDim(nall * 3);
+  coord_shape.AddDim(static_cast<int64_t>(nall) * 3);
   TensorShape type_shape;
   type_shape.AddDim(nframes);
   type_shape.AddDim(nall);
@@ -581,10 +663,13 @@ int deepmd::session_input_tensors(
   std::vector<VALUETYPE> dcoord(dcoord_);
   atommap.forward<VALUETYPE>(dcoord.begin(), dcoord_.begin(), 3, nframes, nall);
   std::vector<VALUETYPE> aparam_(aparam__);
-  atommap.forward<VALUETYPE>(
-      aparam_.begin(), aparam__.begin(),
-      aparam__.size() / nframes / (aparam_nall ? nall : nloc), nframes,
-      (aparam_nall ? nall : nloc));
+  if ((aparam_nall ? nall : nloc) > 0) {
+    atommap.forward<VALUETYPE>(
+        aparam_.begin(), aparam__.begin(),
+        aparam__.size() / nframes / (aparam_nall ? nall : nloc), nframes,
+        (aparam_nall ? nall : nloc));
+  }
+  // if == 0, aparam__.size should also be 0, so no need to forward
 
   for (int ii = 0; ii < nframes; ++ii) {
     for (int jj = 0; jj < nall * 3; ++jj) {
@@ -667,7 +752,7 @@ int deepmd::session_input_tensors_mixed_type(
 
   TensorShape coord_shape;
   coord_shape.AddDim(nframes);
-  coord_shape.AddDim(nall * 3);
+  coord_shape.AddDim(static_cast<int64_t>(nall) * 3);
   TensorShape type_shape;
   type_shape.AddDim(nframes);
   type_shape.AddDim(nall);
@@ -717,10 +802,13 @@ int deepmd::session_input_tensors_mixed_type(
   std::vector<VALUETYPE> dcoord(dcoord_);
   atommap.forward<VALUETYPE>(dcoord.begin(), dcoord_.begin(), 3, nframes, nall);
   std::vector<VALUETYPE> aparam_(aparam__);
-  atommap.forward<VALUETYPE>(
-      aparam_.begin(), aparam__.begin(),
-      aparam__.size() / nframes / (aparam_nall ? nall : nloc), nframes,
-      (aparam_nall ? nall : nloc));
+  if ((aparam_nall ? nall : nloc) > 0) {
+    atommap.forward<VALUETYPE>(
+        aparam_.begin(), aparam__.begin(),
+        aparam__.size() / nframes / (aparam_nall ? nall : nloc), nframes,
+        (aparam_nall ? nall : nloc));
+  }
+  // if == 0, aparam__.size should also be 0, so no need to forward
 
   for (int ii = 0; ii < nframes; ++ii) {
     for (int jj = 0; jj < nall * 3; ++jj) {
@@ -838,6 +926,7 @@ int deepmd::session_get_dtype(tensorflow::Session* session,
   // cast enum to int
   return (int)output_rc.dtype();
 }
+#endif
 
 template <typename VT>
 void deepmd::select_map(std::vector<VT>& out,
@@ -849,13 +938,13 @@ void deepmd::select_map(std::vector<VT>& out,
                         const int& nall2) {
   for (int kk = 0; kk < nframes; ++kk) {
 #ifdef DEBUG
-    assert(in.size() / stride * stride == in.size()),
-        "in size should be multiples of stride"
+    assert(in.size() / stride * stride == in.size() &&
+           "in size should be multiples of stride")
 #endif
         for (int ii = 0; ii < in.size() / stride / nframes; ++ii) {
 #ifdef DEBUG
-      assert(ii < idx_map.size()), "idx goes over the idx map size";
-      assert(idx_map[ii] < out.size()), "mappped idx goes over the out size";
+      assert(ii < idx_map.size() && "idx goes over the idx map size");
+      assert(idx_map[ii] < out.size() && "mapped idx goes over the out size");
 #endif
       if (idx_map[ii] >= 0) {
         int to_ii = idx_map[ii];
@@ -896,13 +985,13 @@ void deepmd::select_map_inv(std::vector<VT>& out,
                             const std::vector<int>& idx_map,
                             const int& stride) {
 #ifdef DEBUG
-  assert(in.size() / stride * stride == in.size()),
-      "in size should be multiples of stride"
+  assert(in.size() / stride * stride == in.size() &&
+         "in size should be multiples of stride");
 #endif
-      for (int ii = 0; ii < out.size() / stride; ++ii) {
+  for (int ii = 0; ii < out.size() / stride; ++ii) {
 #ifdef DEBUG
-    assert(ii < idx_map.size()), "idx goes over the idx map size";
-    assert(idx_map[ii] < in.size()), "from idx goes over the in size";
+    assert(ii < idx_map.size() && "idx goes over the idx map size");
+    assert(idx_map[ii] < in.size() && "from idx goes over the in size");
 #endif
     if (idx_map[ii] >= 0) {
       int from_ii = idx_map[ii];
@@ -928,6 +1017,7 @@ void deepmd::select_map_inv(typename std::vector<VT>::iterator out,
   }
 }
 
+#ifdef BUILD_TENSORFLOW
 template int deepmd::session_get_scalar<int>(Session*,
                                              const std::string,
                                              const std::string);
@@ -940,6 +1030,7 @@ template void deepmd::session_get_vector<int>(std::vector<int>&,
                                               Session*,
                                               const std::string,
                                               const std::string);
+#endif
 
 template void deepmd::select_map<int>(std::vector<int>& out,
                                       const std::vector<int>& in,
@@ -969,6 +1060,7 @@ template void deepmd::select_map_inv<int>(
     const std::vector<int>& idx_map,
     const int& stride);
 
+#ifdef BUILD_TENSORFLOW
 template float deepmd::session_get_scalar<float>(Session*,
                                                  const std::string,
                                                  const std::string);
@@ -977,6 +1069,7 @@ template void deepmd::session_get_vector<float>(std::vector<float>&,
                                                 Session*,
                                                 const std::string,
                                                 const std::string);
+#endif
 
 template void deepmd::select_map<float>(std::vector<float>& out,
                                         const std::vector<float>& in,
@@ -1006,6 +1099,7 @@ template void deepmd::select_map_inv<float>(
     const std::vector<int>& idx_map,
     const int& stride);
 
+#ifdef BUILD_TENSORFLOW
 template double deepmd::session_get_scalar<double>(Session*,
                                                    const std::string,
                                                    const std::string);
@@ -1014,6 +1108,7 @@ template void deepmd::session_get_vector<double>(std::vector<double>&,
                                                  Session*,
                                                  const std::string,
                                                  const std::string);
+#endif
 
 template void deepmd::select_map<double>(std::vector<double>& out,
                                          const std::vector<double>& in,
@@ -1043,6 +1138,7 @@ template void deepmd::select_map_inv<double>(
     const std::vector<int>& idx_map,
     const int& stride);
 
+#ifdef BUILD_TENSORFLOW
 template deepmd::STRINGTYPE deepmd::session_get_scalar<deepmd::STRINGTYPE>(
     Session*, const std::string, const std::string);
 
@@ -1081,13 +1177,23 @@ template void deepmd::select_map_inv<deepmd::STRINGTYPE>(
     const typename std::vector<deepmd::STRINGTYPE>::const_iterator in,
     const std::vector<int>& idx_map,
     const int& stride);
+#endif
 
 void deepmd::read_file_to_string(std::string model, std::string& file_content) {
-  deepmd::check_status(tensorflow::ReadFileToString(tensorflow::Env::Default(),
-                                                    model, &file_content));
+  // generated by GitHub Copilot
+  std::ifstream file(model);
+  if (file.is_open()) {
+    std::stringstream buffer;
+    buffer << file.rdbuf();
+    file_content = buffer.str();
+    file.close();
+  } else {
+    throw deepmd::deepmd_exception("Failed to open file: " + model);
+  }
 }
 
 void deepmd::convert_pbtxt_to_pb(std::string fn_pb_txt, std::string fn_pb) {
+#ifdef BUILD_TENSORFLOW
   int fd = open(fn_pb_txt.c_str(), O_RDONLY);
   tensorflow::protobuf::io::ZeroCopyInputStream* input =
       new tensorflow::protobuf::io::FileInputStream(fd);
@@ -1097,8 +1203,13 @@ void deepmd::convert_pbtxt_to_pb(std::string fn_pb_txt, std::string fn_pb) {
   std::fstream output(fn_pb,
                       std::ios::out | std::ios::trunc | std::ios::binary);
   graph_def.SerializeToOstream(&output);
+#else
+  throw deepmd::deepmd_exception(
+      "convert_pbtxt_to_pb: TensorFlow backend is not enabled.");
+#endif
 }
 
+#ifdef BUILD_TENSORFLOW
 template int deepmd::session_input_tensors<double, double>(
     std::vector<std::pair<std::string, tensorflow::Tensor>>& input_tensors,
     const std::vector<double>& dcoord_,
@@ -1260,16 +1371,17 @@ template int deepmd::session_input_tensors_mixed_type<float, float>(
     const deepmd::AtomMap& atommap,
     const std::string scope,
     const bool aparam_nall);
+#endif
 
 void deepmd::print_summary(const std::string& pre) {
   int num_intra_nthreads, num_inter_nthreads;
   deepmd::get_env_nthreads(num_intra_nthreads, num_inter_nthreads);
   std::cout << pre << "installed to:       " + global_install_prefix << "\n";
   std::cout << pre << "source:             " + global_git_summ << "\n";
-  std::cout << pre << "source branch:       " + global_git_branch << "\n";
+  std::cout << pre << "source branch:      " + global_git_branch << "\n";
   std::cout << pre << "source commit:      " + global_git_hash << "\n";
   std::cout << pre << "source commit at:   " + global_git_date << "\n";
-  std::cout << pre << "surpport model ver.:" + global_model_version << "\n";
+  std::cout << pre << "support model ver.: " + global_model_version << "\n";
 #if defined(GOOGLE_CUDA)
   std::cout << pre << "build variant:      cuda"
             << "\n";
@@ -1280,12 +1392,35 @@ void deepmd::print_summary(const std::string& pre) {
   std::cout << pre << "build variant:      cpu"
             << "\n";
 #endif
+#ifdef BUILD_TENSORFLOW
   std::cout << pre << "build with tf inc:  " + global_tf_include_dir << "\n";
   std::cout << pre << "build with tf lib:  " + global_tf_lib << "\n";
+#endif
+#ifdef BUILD_PYTORCH
+  std::cout << pre << "build with pt lib:  " + global_pt_lib << "\n";
+#endif
+#ifdef BUILD_PADDLE
+  std::cout << pre << "build with pd lib:  " + global_pd_lib << "\n";
+#endif
   std::cout << pre
             << "set tf intra_op_parallelism_threads: " << num_intra_nthreads
             << "\n";
   std::cout << pre
             << "set tf inter_op_parallelism_threads: " << num_inter_nthreads
             << std::endl;
+}
+
+deepmd::DPBackend deepmd::get_backend(const std::string& model) {
+  if (model.length() >= 4 && model.substr(model.length() - 4) == ".pth") {
+    return deepmd::DPBackend::PyTorch;
+  } else if (model.length() >= 3 && model.substr(model.length() - 3) == ".pb") {
+    return deepmd::DPBackend::TensorFlow;
+  } else if (model.length() >= 11 &&
+             model.substr(model.length() - 11) == ".savedmodel") {
+    return deepmd::DPBackend::JAX;
+  } else if ((model.length() >= 5 &&
+              model.substr(model.length() - 5) == ".json")) {
+    return deepmd::DPBackend::Paddle;
+  }
+  throw deepmd::deepmd_exception("Unsupported model file format");
 }

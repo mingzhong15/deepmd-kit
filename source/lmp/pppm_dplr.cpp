@@ -59,7 +59,7 @@ void PPPMDPLR::init() {
 
   int nlocal = atom->nlocal;
   // cout << " ninit pppm/dplr ---------------------- " << nlocal << endl;
-  fele.resize(nlocal * 3);
+  fele.resize(static_cast<size_t>(nlocal) * 3);
   fill(fele.begin(), fele.end(), 0.0);
 }
 
@@ -92,7 +92,7 @@ void PPPMDPLR::compute(int eflag, int vflag) {
     return;
   }
 
-  // convert atoms from box to lamda coords
+  // convert atoms from box to lambda coords
 
   if (triclinic == 0) {
     boxlo = domain->boxlo;
@@ -266,7 +266,7 @@ void PPPMDPLR::compute(int eflag, int vflag) {
     slabcorr();
   }
 
-  // convert atoms back from lamda to box coords
+  // convert atoms back from lambda to box coords
 
   if (triclinic) {
     domain->lamda2x(atom->nlocal);
@@ -296,7 +296,7 @@ void PPPMDPLR::fieldforce_ik() {
   int nghost = atom->nghost;
   int nall = nlocal + nghost;
 
-  fele.resize(nlocal * 3);
+  fele.resize(static_cast<size_t>(nlocal) * 3);
   fill(fele.begin(), fele.end(), 0.0);
 
   for (i = 0; i < nlocal; i++) {
@@ -372,7 +372,7 @@ void PPPMDPLR::fieldforce_ad() {
   int nghost = atom->nghost;
   int nall = nlocal + nghost;
 
-  fele.resize(nlocal * 3);
+  fele.resize(static_cast<size_t>(nlocal) * 3);
   fill(fele.begin(), fele.end(), 0.0);
 
   for (i = 0; i < nlocal; i++) {

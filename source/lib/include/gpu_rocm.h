@@ -4,6 +4,7 @@
 #include <hip/hip_runtime.h>
 #include <stdio.h>
 
+#include <string>
 #include <vector>
 // #include<rocprim/rocprim.hpp>
 // #include <hipcub/hipcub.hpp>
@@ -19,32 +20,46 @@
 #define gpuMemcpyDeviceToDevice hipMemcpyDeviceToDevice
 #define gpuMemset hipMemset
 
-#define DPErrcheck(res) \
-  { DPAssert((res), __FILE__, __LINE__); }
+#define DPErrcheck(res)                  \
+  {                                      \
+    DPAssert((res), __FILE__, __LINE__); \
+  }
 inline void DPAssert(hipError_t code,
                      const char *file,
                      int line,
                      bool abort = true) {
   if (code != hipSuccess) {
-    fprintf(stderr, "hip assert: %s %s %d\n", hipGetErrorString(code), file,
-            line);
+    std::string error_msg = "HIP runtime library throws an error: " +
+                            std::string(hipGetErrorString(code)) +
+                            ", in file " + std::string(file) + ": " +
+                            std::to_string(line);
     if (abort) {
-      throw deepmd::deepmd_exception("HIP Assert");
+      throw deepmd::deepmd_exception(error_msg);
+    } else {
+      fprintf(stderr, "%s\n", error_msg.c_str());
     }
   }
 }
 
-#define nborErrcheck(res) \
-  { nborAssert((res), __FILE__, __LINE__); }
+#define nborErrcheck(res)                  \
+  {                                        \
+    nborAssert((res), __FILE__, __LINE__); \
+  }
 inline void nborAssert(hipError_t code,
                        const char *file,
                        int line,
                        bool abort = true) {
   if (code != hipSuccess) {
-    fprintf(stderr, "hip assert: %s %s %d\n",
-            "DeePMD-kit:\tillegal nbor list sorting", file, line);
-    if (abort) {
-      throw deepmd::deepmd_exception("HIP Assert: illegal nbor list sorting");
+    std::string error_msg = "DeePMD-kit: Illegal nbor list sorting: ";
+    try {
+      DPAssert(code, file, line, true);
+    } catch (deepmd::deepmd_exception &e) {
+      error_msg += e.what();
+      if (abort) {
+        throw deepmd::deepmd_exception(error_msg);
+      } else {
+        fprintf(stderr, "%s\n", error_msg.c_str());
+      }
     }
   }
 }

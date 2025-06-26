@@ -13,6 +13,7 @@ Cite DeePMD-kit and methods
 
    Wang_ComputPhysCommun_2018_v228_p178
    Zeng_JChemPhys_2023_v159_p054801
+   Zeng_JChemTheoryComput_2025_v21_p4375
 
 - If GPU version is used,
 
@@ -47,7 +48,14 @@ Cite DeePMD-kit and methods
 .. bibliography::
    :filter: False
 
-   Zhang_2022_DPA1
+   Zhang_NpjComputMater_2024_v10_p94
+
+- If DPA-2 descriptor (`dpa2`) is used,
+
+.. bibliography::
+   :filter: False
+
+   Zhang_npjComputMater_2024_v10_p293
 
 - If frame-specific parameters (`fparam`, e.g. electronic temperature) is used,
 
