@@ -1,14 +1,16 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
-from typing import (
+from collections.abc import (
     Callable,
-    Optional,
-    Union,
 )
 
 import paddle
 
 from deepmd.dpmodel.utils.seed import (
     child_seed,
+)
+from deepmd.pd.cxx_op import (
+    ENABLE_CUSTOMIZED_OP,
+    paddle_ops_deepmd,
 )
 from deepmd.pd.model.descriptor.descriptor import (
     DescriptorBlock,
@@ -34,6 +36,9 @@ from deepmd.pd.utils.env_mat_stat import (
 from deepmd.pd.utils.exclude_mask import (
     PairExcludeMask,
 )
+from deepmd.pd.utils.spin import (
+    concat_switch_virtual,
+)
 from deepmd.pd.utils.utils import (
     ActivationFn,
 )
@@ -47,6 +52,30 @@ from deepmd.utils.path import (
 from .repflow_layer import (
     RepFlowLayer,
 )
+
+if not ENABLE_CUSTOMIZED_OP:
+
+    def border_op(
+        argument0: paddle.Tensor,
+        argument1: paddle.Tensor,
+        argument2: paddle.Tensor,
+        argument3: paddle.Tensor,
+        argument4: paddle.Tensor,
+        argument5: paddle.Tensor,
+        argument6: paddle.Tensor,
+        argument7: paddle.Tensor,
+        argument8: paddle.Tensor,
+    ) -> paddle.Tensor:
+        raise NotImplementedError(
+            "The 'border_op' operator is unavailable because the custom Paddle OP library was not built when freezing the model.\n"
+            "To install 'border_op', run: python source/op/pd/setup.py install\n"
+            "For more information, please refer to the DPA3 documentation."
+        )
+
+    # Note: this hack cannot actually save a model that can be run using LAMMPS.
+    paddle_ops_deepmd_border_op = border_op
+else:
+    paddle_ops_deepmd_border_op = paddle_ops_deepmd.border_op
 
 
 @DescriptorBlock.register("se_repflow")
@@ -157,15 +186,17 @@ class DescrptBlockRepflows(DescriptorBlock):
         For example, when using paddings, there may be zero distances of neighbors, which may make division by zero error during environment matrix calculations without protection.
     seed : int, optional
         Random seed for parameter initialization.
+    trainable : bool, default: True
+        Whether this block is trainable
     """
 
     def __init__(
         self,
-        e_rcut,
-        e_rcut_smth,
+        e_rcut: float,
+        e_rcut_smth: float,
         e_sel: int,
-        a_rcut,
-        a_rcut_smth,
+        a_rcut: float,
+        a_rcut_smth: float,
         a_sel: int,
         ntypes: int,
         nlayers: int = 6,
@@ -194,7 +225,8 @@ class DescrptBlockRepflows(DescriptorBlock):
         sel_reduce_factor: float = 10.0,
         use_loc_mapping: bool = True,
         optim_update: bool = True,
-        seed: Optional[Union[int, list[int]]] = None,
+        seed: int | list[int] | None = None,
+        trainable: bool = True,
     ) -> None:
         super().__init__()
         self.e_rcut = float(e_rcut)
@@ -204,6 +236,9 @@ class DescrptBlockRepflows(DescriptorBlock):
         self.a_rcut_smth = float(a_rcut_smth)
         self.a_sel = a_sel
         self.ntypes = ntypes
+        self.register_buffer(
+            "buffer_ntypes", paddle.to_tensor(self.ntypes, dtype="int64")
+        )
         self.nlayers = nlayers
         # for other common desciptor method
         sel = [e_sel] if isinstance(e_sel, int) else e_sel
@@ -211,7 +246,9 @@ class DescrptBlockRepflows(DescriptorBlock):
         self.ndescrpt = self.nnei * 4  # use full descriptor.
         assert len(sel) == 1
         self.sel = sel
+        self.register_buffer("buffer_sel", paddle.to_tensor(sel))
         self.rcut = e_rcut
+        self.register_buffer("buffer_rcut", paddle.to_tensor(self.e_rcut))
         self.rcut_smth = e_rcut_smth
         self.sec = self.sel
         self.split_sel = self.sel
@@ -259,10 +296,19 @@ class DescrptBlockRepflows(DescriptorBlock):
         self.seed = seed
 
         self.edge_embd = MLPLayer(
-            1, self.e_dim, precision=precision, seed=child_seed(seed, 0)
+            1,
+            self.e_dim,
+            precision=precision,
+            seed=child_seed(seed, 0),
+            trainable=trainable,
         )
         self.angle_embd = MLPLayer(
-            1, self.a_dim, precision=precision, bias=False, seed=child_seed(seed, 1)
+            1,
+            self.a_dim,
+            precision=precision,
+            bias=False,
+            seed=child_seed(seed, 1),
+            trainable=trainable,
         )
         layers = []
         for ii in range(nlayers):
@@ -294,6 +340,7 @@ class DescrptBlockRepflows(DescriptorBlock):
                     sel_reduce_factor=self.sel_reduce_factor,
                     smooth_edge_update=self.smooth_edge_update,
                     seed=child_seed(child_seed(seed, 1), ii),
+                    trainable=trainable,
                 )
             )
         self.layers = paddle.nn.LayerList(layers)
@@ -311,6 +358,10 @@ class DescrptBlockRepflows(DescriptorBlock):
         """Returns the cut-off radius."""
         return self.e_rcut
 
+    def get_buffer_rcut(self) -> paddle.Tensor:
+        """Returns the cut-off radius as a buffer-style Tensor."""
+        return self.buffer_rcut
+
     def get_rcut_smth(self) -> float:
         """Returns the radius where the neighbor information starts to smoothly decay to 0."""
         return self.e_rcut_smth
@@ -323,9 +374,13 @@ class DescrptBlockRepflows(DescriptorBlock):
         """Returns the number of selected atoms for each type."""
         return self.sel
 
+    def get_buffer_sel(self) -> paddle.Tensor:
+        """Returns the number of selected atoms for each type as a buffer-style Tensor."""
+        return self.buffer_sel
+
     def get_ntypes(self) -> int:
         """Returns the number of element types."""
-        return self.ntypes
+        return self.ntypes if paddle.in_dynamic_mode() else self.buffer_ntypes
 
     def get_dim_out(self) -> int:
         """Returns the output dimension."""
@@ -339,7 +394,7 @@ class DescrptBlockRepflows(DescriptorBlock):
         """Returns the embedding dimension e_dim."""
         return self.e_dim
 
-    def __setitem__(self, key, value) -> None:
+    def __setitem__(self, key: str, value: paddle.Tensor) -> None:
         if key in ("avg", "data_avg", "davg"):
             self.mean = value
         elif key in ("std", "data_std", "dstd"):
@@ -347,7 +402,7 @@ class DescrptBlockRepflows(DescriptorBlock):
         else:
             raise KeyError(key)
 
-    def __getitem__(self, key):
+    def __getitem__(self, key: str) -> paddle.Tensor:
         if key in ("avg", "data_avg", "davg"):
             return self.mean
         elif key in ("std", "data_std", "dstd"):
@@ -372,17 +427,17 @@ class DescrptBlockRepflows(DescriptorBlock):
         return self.env_protection
 
     @property
-    def dim_out(self):
+    def dim_out(self) -> int:
         """Returns the output dimension of this descriptor."""
         return self.n_dim
 
     @property
-    def dim_in(self):
+    def dim_in(self) -> int:
         """Returns the atomic input dimension of this descriptor."""
         return self.n_dim
 
     @property
-    def dim_emb(self):
+    def dim_emb(self) -> int:
         """Returns the embedding dimension e_dim."""
         return self.get_dim_emb()
 
@@ -398,19 +453,20 @@ class DescrptBlockRepflows(DescriptorBlock):
         nlist: paddle.Tensor,
         extended_coord: paddle.Tensor,
         extended_atype: paddle.Tensor,
-        extended_atype_embd: Optional[paddle.Tensor] = None,
-        mapping: Optional[paddle.Tensor] = None,
-        comm_dict: Optional[dict[str, paddle.Tensor]] = None,
-    ):
+        extended_atype_embd: paddle.Tensor | None = None,
+        mapping: paddle.Tensor | None = None,
+        comm_dict: list[paddle.Tensor] | None = None,
+    ) -> paddle.Tensor:
         parallel_mode = comm_dict is not None
         if not parallel_mode:
-            assert mapping is not None
+            if paddle.in_dynamic_mode():
+                assert mapping is not None
         nframes, nloc, nnei = nlist.shape
         nall = extended_coord.reshape([nframes, -1]).shape[1] // 3
         atype = extended_atype[:, :nloc]
         # nb x nloc x nnei
         exclude_mask = self.emask(nlist, extended_atype)
-        nlist = paddle.where(exclude_mask != 0, nlist, -1)
+        nlist = paddle.where(exclude_mask != 0, nlist, paddle.full_like(nlist, -1))
         # nb x nloc x nnei x 4, nb x nloc x nnei x 3, nb x nloc x nnei x 1
         dmatrix, diff, sw = prod_env_mat(
             extended_coord,
@@ -433,7 +489,7 @@ class DescrptBlockRepflows(DescriptorBlock):
             :, :, : self.a_sel
         ]
         a_nlist = nlist[:, :, : self.a_sel]
-        a_nlist = paddle.where(a_dist_mask, a_nlist, -1)
+        a_nlist = paddle.where(a_dist_mask, a_nlist, paddle.full_like(a_nlist, -1))
         _, a_diff, a_sw = prod_env_mat(
             extended_coord,
             a_nlist,
@@ -483,7 +539,8 @@ class DescrptBlockRepflows(DescriptorBlock):
         angle_input = cosine_ij.unsqueeze(-1) / (paddle.pi**0.5)
 
         if not parallel_mode and self.use_loc_mapping:
-            assert mapping is not None
+            if paddle.in_dynamic_mode():
+                assert mapping is not None
             # convert nlist from nall to nloc index
             nlist = paddle.take_along_axis(
                 mapping,
@@ -515,7 +572,8 @@ class DescrptBlockRepflows(DescriptorBlock):
             a_sw = (a_sw[:, :, :, None] * a_sw[:, :, None, :])[a_nlist_mask]
         else:
             # avoid jit assertion
-            edge_index = angle_index = paddle.zeros([1, 3], dtype=nlist.dtype)
+            edge_index = paddle.zeros([2, 1], dtype=nlist.dtype)
+            angle_index = paddle.zeros([3, 1], dtype=nlist.dtype)
         # get edge and angle embedding
         # nb x nloc x nnei x e_dim [OR] n_edge x e_dim
         if not self.edge_init_use_dist:
@@ -527,7 +585,8 @@ class DescrptBlockRepflows(DescriptorBlock):
 
         # nb x nall x n_dim
         if not parallel_mode:
-            assert mapping is not None
+            if paddle.in_dynamic_mode():
+                assert mapping is not None
             mapping = (
                 mapping.reshape([nframes, nall])
                 .unsqueeze(-1)
@@ -537,12 +596,95 @@ class DescrptBlockRepflows(DescriptorBlock):
             # node_ebd:     nb x nloc x n_dim
             # node_ebd_ext: nb x nall x n_dim [OR] nb x nloc x n_dim when not parallel_mode
             if not parallel_mode:
-                assert mapping is not None
-                node_ebd_ext = paddle.take_along_axis(
-                    node_ebd, mapping, 1, broadcast=False
+                if paddle.in_dynamic_mode():
+                    assert mapping is not None
+                node_ebd_ext = (
+                    paddle.take_along_axis(node_ebd, mapping, 1, broadcast=False)
+                    if not self.use_loc_mapping
+                    else node_ebd
                 )
             else:
-                raise NotImplementedError("Not implemented")
+                assert len(comm_dict) >= 6
+                has_spin = len(comm_dict) >= 7
+                if not has_spin:
+                    n_padding = nall - nloc
+                    if paddle.in_dynamic_mode():
+                        node_ebd = paddle.nn.functional.pad(
+                            node_ebd.squeeze(0), [0, 0, 0, n_padding], value=0.0
+                        )
+                    else:
+                        _fill_shape = node_ebd.shape[1:]
+                        _fill_shape[0] = n_padding
+                        node_ebd = paddle.concat(
+                            [
+                                node_ebd.squeeze(0),
+                                paddle.zeros(_fill_shape, dtype=node_ebd.dtype),
+                            ],
+                            axis=0,
+                        )
+                    # [nframes, nloc, tebd_dim]
+                    real_nloc = nloc
+                    real_nall = nall
+                else:
+                    # for spin
+                    real_nloc = nloc // 2
+                    real_nall = nall // 2
+                    real_n_padding = real_nall - real_nloc
+                    node_ebd_real, node_ebd_virtual = paddle.split(
+                        node_ebd, [real_nloc, real_nloc], axis=1
+                    )
+                    # mix_node_ebd: nb x real_nloc x (n_dim * 2)
+                    mix_node_ebd = paddle.concat(
+                        [node_ebd_real, node_ebd_virtual], axis=2
+                    )
+                    # nb x real_nall x (n_dim * 2)
+                    if paddle.in_dynamic_mode():
+                        node_ebd = paddle.nn.functional.pad(
+                            mix_node_ebd.squeeze(0),
+                            (0, 0, 0, real_n_padding),
+                            value=0.0,
+                        )
+                    else:
+                        _fill_shape = mix_node_ebd.shape[1:]
+                        _fill_shape[0] = real_n_padding
+                        node_ebd = paddle.concat(
+                            [
+                                mix_node_ebd.squeeze(0),
+                                paddle.zeros(_fill_shape, dtype=mix_node_ebd.dtype),
+                            ],
+                            axis=0,
+                        )
+
+                assert len(comm_dict) >= 6
+                ret = paddle_ops_deepmd_border_op(
+                    comm_dict[0],
+                    comm_dict[1],
+                    comm_dict[2],
+                    comm_dict[3],
+                    comm_dict[4],
+                    node_ebd,
+                    comm_dict[5],
+                    paddle.to_tensor(
+                        real_nloc,
+                        dtype=paddle.int32,
+                        place=paddle.CPUPlace(),
+                    ),  # should be int of c++, placed on cpu
+                    paddle.to_tensor(
+                        real_nall - real_nloc,
+                        dtype=paddle.int32,
+                        place=paddle.CPUPlace(),
+                    ),  # should be int of c++, placed on cpu
+                )
+                if not paddle.in_dynamic_mode():
+                    ret = paddle.assign(ret)
+                node_ebd_ext = ret.unsqueeze(0)
+                if has_spin:
+                    node_ebd_real_ext, node_ebd_virtual_ext = paddle.split(
+                        node_ebd_ext, [n_dim, n_dim], axis=2
+                    )
+                    node_ebd_ext = concat_switch_virtual(
+                        node_ebd_real_ext, node_ebd_virtual_ext, real_nloc
+                    )
             node_ebd, edge_ebd, angle_ebd = ll.forward(
                 node_ebd_ext,
                 edge_ebd,
@@ -566,7 +708,7 @@ class DescrptBlockRepflows(DescriptorBlock):
                 edge_ebd,
                 h2,
                 sw,
-                owner=edge_index[:, 0],
+                owner=edge_index[0],
                 num_owner=nframes * nloc,
                 nb=nframes,
                 nloc=nloc,
@@ -586,8 +728,8 @@ class DescrptBlockRepflows(DescriptorBlock):
 
     def compute_input_stats(
         self,
-        merged: Union[Callable[[], list[dict]], list[dict]],
-        path: Optional[DPPath] = None,
+        merged: Callable[[], list[dict]] | list[dict],
+        path: DPPath | None = None,
     ) -> None:
         """
         Compute the input statistics (e.g. mean and stddev) for the descriptors from packed data.

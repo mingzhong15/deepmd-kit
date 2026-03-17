@@ -1,18 +1,19 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
-from typing import (
+from collections.abc import (
     Callable,
+)
+from typing import (
+    Any,
     NoReturn,
-    Optional,
-    Union,
 )
 
 import array_api_compat
-import numpy as np
 
 from deepmd.dpmodel import (
     NativeOP,
 )
 from deepmd.dpmodel.array_api import (
+    Array,
     xp_take_along_axis,
 )
 from deepmd.dpmodel.common import (
@@ -83,7 +84,7 @@ class RepinitArgs:
         tebd_dim: int = 8,
         tebd_input_mode: str = "concat",
         set_davg_zero: bool = True,
-        activation_function="tanh",
+        activation_function: str = "tanh",
         resnet_dt: bool = False,
         type_one_side: bool = False,
         use_three_body: bool = False,
@@ -151,7 +152,7 @@ class RepinitArgs:
         self.three_body_rcut = three_body_rcut
         self.three_body_rcut_smth = three_body_rcut_smth
 
-    def __getitem__(self, key):
+    def __getitem__(self, key: str) -> Any:
         if hasattr(self, key):
             return getattr(self, key)
         else:
@@ -214,7 +215,7 @@ class RepformerArgs:
         use_sqrt_nnei: bool = True,
         g1_out_conv: bool = True,
         g1_out_mlp: bool = True,
-        ln_eps: Optional[float] = 1e-5,
+        ln_eps: float | None = 1e-5,
     ) -> None:
         r"""The constructor for the RepformerArgs class which defines the parameters of the repformer block in DPA2 descriptor.
 
@@ -321,7 +322,7 @@ class RepformerArgs:
             ln_eps = 1e-5
         self.ln_eps = ln_eps
 
-    def __getitem__(self, key):
+    def __getitem__(self, key: str) -> Any:
         if hasattr(self, key):
             return getattr(self, key)
         else:
@@ -368,13 +369,87 @@ class RepformerArgs:
 
 @BaseDescriptor.register("dpa2")
 class DescrptDPA2(NativeOP, BaseDescriptor):
+    r"""The DPA-2 descriptor[1]_.
+
+    The DPA-2 descriptor combines a repinit block and a repformer block to extract
+    atomic representations. The overall descriptor is computed as:
+
+    .. math::
+        \mathcal{D}^i = \mathrm{Repformer}(\mathrm{Linear}(\mathrm{Repinit}(\mathcal{R}^i, \mathcal{T}^i))),
+
+    where :math:`\mathcal{R}^i` is the environment matrix and :math:`\mathcal{T}^i` is the
+    type embedding.
+
+    The repinit block computes initial node and edge representations using attention-based
+    message passing. The repformer block further refines these representations through
+    multiple layers of graph convolution and attention mechanisms.
+
+    The final output dimension is:
+
+    .. math::
+        \dim(\mathcal{D}^i) = \text{g1\_dim} + \text{tebd\_dim} \quad (\text{if concat\_output\_tebd}).
+
+    Parameters
+    ----------
+    repinit : Union[RepinitArgs, dict]
+        The arguments used to initialize the repinit block, see docstr in `RepinitArgs` for details information.
+    repformer : Union[RepformerArgs, dict]
+        The arguments used to initialize the repformer block, see docstr in `RepformerArgs` for details information.
+    concat_output_tebd : bool, optional
+        Whether to concat type embedding at the output of the descriptor.
+    precision : str, optional
+        The precision of the embedding net parameters.
+    smooth : bool, optional
+        Whether to use smoothness in processes such as attention weights calculation.
+    exclude_types : list[list[int]], optional
+        The excluded pairs of types which have no interaction with each other.
+        For example, `[[0, 1]]` means no interaction between type 0 and type 1.
+    env_protection : float, optional
+        Protection parameter to prevent division by zero errors during environment matrix calculations.
+        For example, when using paddings, there may be zero distances of neighbors, which may make division by zero error during environment matrix calculations without protection.
+    trainable : bool, optional
+        If the parameters are trainable.
+    seed : int, optional
+        (Unused yet) Random seed for parameter initialization.
+    add_tebd_to_repinit_out : bool, optional
+        Whether to add type embedding to the output representation from repinit before inputting it into repformer.
+    use_econf_tebd : bool, Optional
+        Whether to use electronic configuration type embedding.
+    use_tebd_bias : bool, Optional
+        Whether to use bias in the type embedding layer.
+    type_map : list[str], Optional
+        A list of strings. Give the name to each type of atoms.
+
+    Returns
+    -------
+    descriptor:         torch.Tensor
+        the descriptor of shape nf x nloc x g1_dim.
+        invariant single-atom representation.
+    g2:                 torch.Tensor
+        invariant pair-atom representation.
+    h2:                 torch.Tensor
+        equivariant pair-atom representation.
+    rot_mat:            torch.Tensor
+        rotation matrix for equivariant fittings
+    sw:                 torch.Tensor
+        The switch function for decaying inverse distance.
+
+    References
+    ----------
+    .. [1] Zhang, D., Liu, X., Zhang, X. et al. DPA-2: a
+       large atomic model as a multi-task learner. npj
+       Comput Mater 10, 293 (2024). https://doi.org/10.1038/s41524-024-01493-2
+    """
+
+    _update_sel_cls = UpdateSel
+
     def __init__(
         self,
         ntypes: int,
         # args for repinit
-        repinit: Union[RepinitArgs, dict],
+        repinit: RepinitArgs | dict,
         # args for repformer
-        repformer: Union[RepformerArgs, dict],
+        repformer: RepformerArgs | dict,
         # kwargs for descriptor
         concat_output_tebd: bool = True,
         precision: str = "float64",
@@ -382,67 +457,13 @@ class DescrptDPA2(NativeOP, BaseDescriptor):
         exclude_types: list[tuple[int, int]] = [],
         env_protection: float = 0.0,
         trainable: bool = True,
-        seed: Optional[Union[int, list[int]]] = None,
+        seed: int | list[int] | None = None,
         add_tebd_to_repinit_out: bool = False,
         use_econf_tebd: bool = False,
         use_tebd_bias: bool = False,
-        type_map: Optional[list[str]] = None,
+        type_map: list[str] | None = None,
     ) -> None:
-        r"""The DPA-2 descriptor[1]_.
-
-        Parameters
-        ----------
-        repinit : Union[RepinitArgs, dict]
-            The arguments used to initialize the repinit block, see docstr in `RepinitArgs` for details information.
-        repformer : Union[RepformerArgs, dict]
-            The arguments used to initialize the repformer block, see docstr in `RepformerArgs` for details information.
-        concat_output_tebd : bool, optional
-            Whether to concat type embedding at the output of the descriptor.
-        precision : str, optional
-            The precision of the embedding net parameters.
-        smooth : bool, optional
-            Whether to use smoothness in processes such as attention weights calculation.
-        exclude_types : list[list[int]], optional
-            The excluded pairs of types which have no interaction with each other.
-            For example, `[[0, 1]]` means no interaction between type 0 and type 1.
-        env_protection : float, optional
-            Protection parameter to prevent division by zero errors during environment matrix calculations.
-            For example, when using paddings, there may be zero distances of neighbors, which may make division by zero error during environment matrix calculations without protection.
-        trainable : bool, optional
-            If the parameters are trainable.
-        seed : int, optional
-            (Unused yet) Random seed for parameter initialization.
-        add_tebd_to_repinit_out : bool, optional
-            Whether to add type embedding to the output representation from repinit before inputting it into repformer.
-        use_econf_tebd : bool, Optional
-            Whether to use electronic configuration type embedding.
-        use_tebd_bias : bool, Optional
-            Whether to use bias in the type embedding layer.
-        type_map : list[str], Optional
-            A list of strings. Give the name to each type of atoms.
-
-        Returns
-        -------
-        descriptor:         torch.Tensor
-            the descriptor of shape nf x nloc x g1_dim.
-            invariant single-atom representation.
-        g2:                 torch.Tensor
-            invariant pair-atom representation.
-        h2:                 torch.Tensor
-            equivariant pair-atom representation.
-        rot_mat:            torch.Tensor
-            rotation matrix for equivariant fittings
-        sw:                 torch.Tensor
-            The switch function for decaying inverse distance.
-
-        References
-        ----------
-        .. [1] Zhang, D., Liu, X., Zhang, X. et al. DPA-2: a
-           large atomic model as a multi-task learner. npj
-           Comput Mater 10, 293 (2024). https://doi.org/10.1038/s41524-024-01493-2
-        """
-
-        def init_subclass_params(sub_data, sub_class):
+        def init_subclass_params(sub_data: dict | Any, sub_class: type) -> Any:
             if isinstance(sub_data, dict):
                 return sub_class(**sub_data)
             elif isinstance(sub_data, sub_class):
@@ -474,6 +495,7 @@ class DescrptDPA2(NativeOP, BaseDescriptor):
             smooth=smooth,
             type_one_side=self.repinit_args.type_one_side,
             seed=child_seed(seed, 0),
+            trainable=trainable,
         )
         self.use_three_body = self.repinit_args.use_three_body
         if self.use_three_body:
@@ -493,6 +515,7 @@ class DescrptDPA2(NativeOP, BaseDescriptor):
                 resnet_dt=self.repinit_args.resnet_dt,
                 smooth=smooth,
                 seed=child_seed(seed, 5),
+                trainable=trainable,
             )
         else:
             self.repinit_three_body = None
@@ -533,6 +556,7 @@ class DescrptDPA2(NativeOP, BaseDescriptor):
             g1_out_mlp=self.repformer_args.g1_out_mlp,
             ln_eps=self.repformer_args.ln_eps,
             seed=child_seed(seed, 1),
+            trainable=trainable,
         )
         self.rcsl_list = [
             (self.repformers.get_rcut(), self.repformers.get_nsel()),
@@ -562,12 +586,14 @@ class DescrptDPA2(NativeOP, BaseDescriptor):
             use_tebd_bias=use_tebd_bias,
             type_map=type_map,
             seed=child_seed(seed, 2),
+            trainable=trainable,
         )
         self.concat_output_tebd = concat_output_tebd
         self.precision = precision
         self.smooth = smooth
         self.exclude_types = exclude_types
         self.env_protection = env_protection
+        self.rcut_smth = self.repinit.get_rcut_smth()
         self.trainable = trainable
         self.add_tebd_to_repinit_out = add_tebd_to_repinit_out
 
@@ -585,6 +611,7 @@ class DescrptDPA2(NativeOP, BaseDescriptor):
                 bias=False,
                 precision=precision,
                 seed=child_seed(seed, 3),
+                trainable=trainable,
             )
         self.tebd_transform = None
         if self.add_tebd_to_repinit_out:
@@ -594,6 +621,7 @@ class DescrptDPA2(NativeOP, BaseDescriptor):
                 bias=False,
                 precision=precision,
                 seed=child_seed(seed, 4),
+                trainable=trainable,
             )
         assert self.repinit.rcut > self.repformers.rcut
         assert self.repinit.sel[0] > self.repformers.sel[0]
@@ -665,7 +693,9 @@ class DescrptDPA2(NativeOP, BaseDescriptor):
         """Returns the protection of building environment matrix."""
         return self.env_protection
 
-    def share_params(self, base_class, shared_level, resume=False) -> NoReturn:
+    def share_params(
+        self, base_class: Any, shared_level: int, resume: bool = False
+    ) -> NoReturn:
         """
         Share the parameters of self to the base_class with shared_level during multitask training.
         If not start from checkpoint (resume is False),
@@ -674,7 +704,7 @@ class DescrptDPA2(NativeOP, BaseDescriptor):
         raise NotImplementedError
 
     def change_type_map(
-        self, type_map: list[str], model_with_new_type_stat=None
+        self, type_map: list[str], model_with_new_type_stat: Any = None
     ) -> None:
         """Change the type related params to new ones, according to `type_map` and the original one in the model.
         If there are new types in `type_map`, statistics will be updated accordingly to `model_with_new_type_stat` for these new types.
@@ -729,19 +759,19 @@ class DescrptDPA2(NativeOP, BaseDescriptor):
             repinit_three_body["dstd"] = repinit_three_body["dstd"][remap_index]
 
     @property
-    def dim_out(self):
+    def dim_out(self) -> int:
         return self.get_dim_out()
 
     @property
-    def dim_emb(self):
+    def dim_emb(self) -> int:
         """Returns the embedding dimension g2."""
         return self.get_dim_emb()
 
     def compute_input_stats(
         self,
-        merged: Union[Callable[[], list[dict]], list[dict]],
-        path: Optional[DPPath] = None,
-    ):
+        merged: Callable[[], list[dict]] | list[dict],
+        path: DPPath | None = None,
+    ) -> None:
         """
         Compute the input statistics (e.g. mean and stddev) for the descriptors from packed data.
 
@@ -766,8 +796,8 @@ class DescrptDPA2(NativeOP, BaseDescriptor):
 
     def set_stat_mean_and_stddev(
         self,
-        mean: list[np.ndarray],
-        stddev: list[np.ndarray],
+        mean: list[Array],
+        stddev: list[Array],
     ) -> None:
         """Update mean and stddev for descriptor."""
         descrpt_list = [self.repinit, self.repformers]
@@ -777,7 +807,9 @@ class DescrptDPA2(NativeOP, BaseDescriptor):
             descrpt.mean = mean[ii]
             descrpt.stddev = stddev[ii]
 
-    def get_stat_mean_and_stddev(self) -> tuple[list[np.ndarray], list[np.ndarray]]:
+    def get_stat_mean_and_stddev(
+        self,
+    ) -> tuple[list[Array], list[Array]]:
         """Get mean and stddev for descriptor."""
         mean_list = [self.repinit.mean, self.repformers.mean]
         stddev_list = [
@@ -792,11 +824,12 @@ class DescrptDPA2(NativeOP, BaseDescriptor):
     @cast_precision
     def call(
         self,
-        coord_ext: np.ndarray,
-        atype_ext: np.ndarray,
-        nlist: np.ndarray,
-        mapping: Optional[np.ndarray] = None,
-    ):
+        coord_ext: Array,
+        atype_ext: Array,
+        nlist: Array,
+        mapping: Array | None = None,
+        fparam: Array | None = None,
+    ) -> tuple[Array, Array, Array, Array, Array]:
         """Compute the descriptor.
 
         Parameters
@@ -1062,9 +1095,9 @@ class DescrptDPA2(NativeOP, BaseDescriptor):
     def update_sel(
         cls,
         train_data: DeepmdDataSystem,
-        type_map: Optional[list[str]],
+        type_map: list[str] | None,
         local_jdata: dict,
-    ) -> tuple[dict, Optional[float]]:
+    ) -> tuple[Array, Array]:
         """Update the selection and perform neighbor statistics.
 
         Parameters
@@ -1084,7 +1117,7 @@ class DescrptDPA2(NativeOP, BaseDescriptor):
             The minimum distance between two atoms
         """
         local_jdata_cpy = local_jdata.copy()
-        update_sel = UpdateSel()
+        update_sel = cls._update_sel_cls()
         min_nbor_dist, repinit_sel = update_sel.update_one_sel(
             train_data,
             type_map,

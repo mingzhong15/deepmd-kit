@@ -57,12 +57,13 @@ if INSTALLED_ARRAY_API_STRICT:
 
 
 @parameterized(
-    (False, True),  # use_huber
+    (False, True),  # huber
+    (False, True),  # enable_atom_ener_coeff
 )
 class TestEner(CommonTest, LossTest, unittest.TestCase):
     @property
     def data(self) -> dict:
-        (use_huber,) = self.param
+        (use_huber, enable_atom_ener_coeff) = self.param
         return {
             "start_pref_e": 0.02,
             "limit_pref_e": 1.0,
@@ -75,6 +76,7 @@ class TestEner(CommonTest, LossTest, unittest.TestCase):
             "start_pref_pf": 1.0 if not use_huber else 0.0,
             "limit_pref_pf": 1.0 if not use_huber else 0.0,
             "use_huber": use_huber,
+            "enable_atom_ener_coeff": enable_atom_ener_coeff,
         }
 
     skip_tf = CommonTest.skip_tf
@@ -109,10 +111,10 @@ class TestEner(CommonTest, LossTest, unittest.TestCase):
             ),
         }
         self.predict_dpmodel_style = {
-            "energy_derv_c_redu": self.predict["virial"],
-            "energy_derv_r": self.predict["force"],
-            "energy_redu": self.predict["energy"],
-            "energy": self.predict["atom_ener"],
+            "energy": self.predict["energy"],
+            "force": self.predict["force"],
+            "virial": self.predict["virial"],
+            "atom_energy": self.predict["atom_ener"],
         }
         self.label = {
             "energy": rng.random((self.nframes,)),
@@ -124,11 +126,13 @@ class TestEner(CommonTest, LossTest, unittest.TestCase):
                     self.natoms,
                 )
             ),
+            "atom_ener_coeff": rng.random((self.nframes, self.natoms)),
             "atom_pref": np.ones((self.nframes, self.natoms, 3)),
             "find_energy": 1.0,
             "find_force": 1.0,
             "find_virial": 1.0,
             "find_atom_ener": 1.0,
+            "find_atom_ener_coeff": 1.0,
             "find_atom_pref": 1.0,
         }
 
@@ -247,8 +251,17 @@ class TestEner(CommonTest, LossTest, unittest.TestCase):
         more_loss = {kk: to_numpy_array(vv) for kk, vv in more_loss.items()}
         return loss, more_loss
 
-    def extract_ret(self, ret: Any, backend) -> tuple[np.ndarray, ...]:
-        return (ret[0],)
+    def extract_ret(self, ret: Any, backend) -> dict[str, np.ndarray]:
+        loss = ret[0]
+        result = {"loss": np.atleast_1d(np.asarray(loss, dtype=np.float64))}
+        if len(ret) > 1:
+            more_loss = ret[1]
+            for k in sorted(more_loss):
+                if k.startswith("rmse_"):
+                    result[k] = np.atleast_1d(
+                        np.asarray(more_loss[k], dtype=np.float64)
+                    )
+        return result
 
     @property
     def rtol(self) -> float:

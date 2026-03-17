@@ -1,4 +1,7 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
+from typing import (
+    Any,
+)
 
 import torch
 import torch.nn.functional as F
@@ -20,21 +23,21 @@ from deepmd.utils.data import (
 class EnergySpinLoss(TaskLoss):
     def __init__(
         self,
-        starter_learning_rate=1.0,
-        start_pref_e=0.0,
-        limit_pref_e=0.0,
-        start_pref_fr=0.0,
-        limit_pref_fr=0.0,
-        start_pref_fm=0.0,
-        limit_pref_fm=0.0,
-        start_pref_v=0.0,
-        limit_pref_v=0.0,
+        starter_learning_rate: float = 1.0,
+        start_pref_e: float = 0.0,
+        limit_pref_e: float = 0.0,
+        start_pref_fr: float = 0.0,
+        limit_pref_fr: float = 0.0,
+        start_pref_fm: float = 0.0,
+        limit_pref_fm: float = 0.0,
+        start_pref_v: float = 0.0,
+        limit_pref_v: float = 0.0,
         start_pref_ae: float = 0.0,
         limit_pref_ae: float = 0.0,
         enable_atom_ener_coeff: bool = False,
         use_l1_all: bool = False,
-        inference=False,
-        **kwargs,
+        inference: bool = False,
+        **kwargs: Any,
     ) -> None:
         r"""Construct a layer to compute loss on energy, real force, magnetic force and virial.
 
@@ -93,7 +96,15 @@ class EnergySpinLoss(TaskLoss):
         self.use_l1_all = use_l1_all
         self.inference = inference
 
-    def forward(self, input_dict, model, label, natoms, learning_rate, mae=False):
+    def forward(
+        self,
+        input_dict: dict[str, torch.Tensor],
+        model: torch.nn.Module,
+        label: dict[str, torch.Tensor],
+        natoms: int,
+        learning_rate: float,
+        mae: bool = False,
+    ) -> tuple[dict[str, torch.Tensor], torch.Tensor, dict[str, torch.Tensor]]:
         """Return energy loss with magnetic labels.
 
         Parameters
@@ -267,6 +278,22 @@ class EnergySpinLoss(TaskLoss):
             more_loss["rmse_ae"] = self.display_if_exist(
                 rmse_ae.detach(), find_atom_ener
             )
+
+        if self.has_v and "virial" in model_pred and "virial" in label:
+            find_virial = label.get("find_virial", 0.0)
+            pref_v = pref_v * find_virial
+            diff_v = label["virial"] - model_pred["virial"].reshape(-1, 9)
+            l2_virial_loss = torch.mean(torch.square(diff_v))
+            if not self.inference:
+                more_loss["l2_virial_loss"] = self.display_if_exist(
+                    l2_virial_loss.detach(), find_virial
+                )
+            loss += atom_norm * (pref_v * l2_virial_loss)
+            rmse_v = l2_virial_loss.sqrt() * atom_norm
+            more_loss["rmse_v"] = self.display_if_exist(rmse_v.detach(), find_virial)
+            if mae:
+                mae_v = torch.mean(torch.abs(diff_v)) * atom_norm
+                more_loss["mae_v"] = self.display_if_exist(mae_v.detach(), find_virial)
 
         if not self.inference:
             more_loss["rmse"] = torch.sqrt(loss.detach())

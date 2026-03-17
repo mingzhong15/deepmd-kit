@@ -1,8 +1,4 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
-from typing import (
-    Optional,
-    Union,
-)
 
 import torch
 import torch.nn as nn
@@ -63,7 +59,8 @@ class RepFlowLayer(torch.nn.Module):
         update_residual: float = 0.1,
         update_residual_init: str = "const",
         precision: str = "float64",
-        seed: Optional[Union[int, list[int]]] = None,
+        seed: int | list[int] | None = None,
+        trainable: bool = True,
     ) -> None:
         super().__init__()
         self.epsilon = 1e-4  # protection of 1./nnei
@@ -126,6 +123,7 @@ class RepFlowLayer(torch.nn.Module):
             n_dim,
             precision=precision,
             seed=child_seed(seed, 0),
+            trainable=trainable,
         )
         if self.update_style == "res_residual":
             self.n_residual.append(
@@ -135,6 +133,7 @@ class RepFlowLayer(torch.nn.Module):
                     self.update_residual_init,
                     precision=precision,
                     seed=child_seed(seed, 1),
+                    trainable=trainable,
                 )
             )
 
@@ -145,6 +144,7 @@ class RepFlowLayer(torch.nn.Module):
             n_dim,
             precision=precision,
             seed=child_seed(seed, 2),
+            trainable=trainable,
         )
         if self.update_style == "res_residual":
             self.n_residual.append(
@@ -154,6 +154,7 @@ class RepFlowLayer(torch.nn.Module):
                     self.update_residual_init,
                     precision=precision,
                     seed=child_seed(seed, 3),
+                    trainable=trainable,
                 )
             )
 
@@ -163,6 +164,7 @@ class RepFlowLayer(torch.nn.Module):
             self.n_multi_edge_message * n_dim,
             precision=precision,
             seed=child_seed(seed, 4),
+            trainable=trainable,
         )
         if self.update_style == "res_residual":
             for head_index in range(self.n_multi_edge_message):
@@ -173,6 +175,7 @@ class RepFlowLayer(torch.nn.Module):
                         self.update_residual_init,
                         precision=precision,
                         seed=child_seed(child_seed(seed, 5), head_index),
+                        trainable=trainable,
                     )
                 )
 
@@ -182,6 +185,7 @@ class RepFlowLayer(torch.nn.Module):
             e_dim,
             precision=precision,
             seed=child_seed(seed, 6),
+            trainable=trainable,
         )
         if self.update_style == "res_residual":
             self.e_residual.append(
@@ -191,6 +195,7 @@ class RepFlowLayer(torch.nn.Module):
                     self.update_residual_init,
                     precision=precision,
                     seed=child_seed(seed, 7),
+                    trainable=trainable,
                 )
             )
 
@@ -219,6 +224,7 @@ class RepFlowLayer(torch.nn.Module):
                         precision=precision,
                         bias=False,
                         seed=child_seed(seed, 8),
+                        trainable=trainable,
                     )
                     self.a_compress_e_linear = MLPLayer(
                         self.e_dim,
@@ -226,6 +232,7 @@ class RepFlowLayer(torch.nn.Module):
                         precision=precision,
                         bias=False,
                         seed=child_seed(seed, 9),
+                        trainable=trainable,
                     )
                 else:
                     self.a_compress_n_linear = None
@@ -237,12 +244,14 @@ class RepFlowLayer(torch.nn.Module):
                 self.e_dim,
                 precision=precision,
                 seed=child_seed(seed, 10),
+                trainable=trainable,
             )
             self.edge_angle_linear2 = MLPLayer(
                 self.e_dim,
                 self.e_dim,
                 precision=precision,
                 seed=child_seed(seed, 11),
+                trainable=trainable,
             )
             if self.update_style == "res_residual":
                 self.e_residual.append(
@@ -252,6 +261,7 @@ class RepFlowLayer(torch.nn.Module):
                         self.update_residual_init,
                         precision=precision,
                         seed=child_seed(seed, 12),
+                        trainable=trainable,
                     )
                 )
 
@@ -261,6 +271,7 @@ class RepFlowLayer(torch.nn.Module):
                 self.a_dim,
                 precision=precision,
                 seed=child_seed(seed, 13),
+                trainable=trainable,
             )
             if self.update_style == "res_residual":
                 self.a_residual.append(
@@ -270,6 +281,7 @@ class RepFlowLayer(torch.nn.Module):
                         self.update_residual_init,
                         precision=precision,
                         seed=child_seed(seed, 14),
+                        trainable=trainable,
                     )
                 )
         else:
@@ -696,7 +708,7 @@ class RepFlowLayer(torch.nn.Module):
         a_sw: torch.Tensor,  # switch func, nf x nloc x a_nnei
         edge_index: torch.Tensor,  # 2 x n_edge
         angle_index: torch.Tensor,  # 3 x n_angle
-    ):
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Parameters
         ----------
