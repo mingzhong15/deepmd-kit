@@ -253,5 +253,42 @@ class DeepPot(DeepEval):
             result = (*list(result), hessian)
         return result
 
+    def eval_full(
+        self,
+        coords: np.ndarray,
+        cells: np.ndarray | None,
+        atom_types: list[int] | np.ndarray,
+        atomic: bool = False,
+        fparam: np.ndarray | None = None,
+        aparam: np.ndarray | None = None,
+        mixed_type: bool = False,
+        **kwargs: Any,
+    ) -> dict[str, np.ndarray]:
+        """Evaluate and return all outputs as a dict.
+
+        Returns
+        -------
+        dict[str, np.ndarray]
+            Full output dict from the model backend.
+        """
+        (
+            coords,
+            cells,
+            atom_types,
+            fparam,
+            aparam,
+            nframes,
+            natoms,
+        ) = self._standard_input(coords, cells, atom_types, fparam, aparam, mixed_type)
+        return self.deep_eval.eval(
+            coords,
+            cells,
+            atom_types,
+            atomic,
+            fparam=fparam,
+            aparam=aparam,
+            **kwargs,
+        )
+
 
 __all__ = ["DeepPot"]

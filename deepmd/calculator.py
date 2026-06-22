@@ -12,6 +12,8 @@ from typing import (
     Union,
 )
 
+import numpy as np
+
 from ase.calculators.calculator import (
     Calculator,
     PropertyNotImplementedError,
@@ -140,17 +142,26 @@ class DP(Calculator):
         fparam = self.atoms.info.get("fparam", None)
         aparam = self.atoms.info.get("aparam", None)
         charge_spin = self.atoms.info.get("charge_spin", None)
-        e, f, v = self.dp.eval(
+        full_results = self.dp.eval_full(
             coords=coord,
             cells=cell,
             atom_types=atype,
             fparam=fparam,
             aparam=aparam,
             charge_spin=charge_spin,
-        )[:3]
-        self.results["energy"] = e[0][0]
-        # see https://gitlab.com/ase/ase/-/merge_requests/2485
-        self.results["free_energy"] = e[0][0]
+        )
+        e = full_results["energy_redu"].reshape(1, 1)
+        f = full_results["energy_derv_r"].reshape(1, -1, 3)
+        v = full_results["energy_derv_c_redu"].reshape(1, 9)
+        free_energy = e[0][0]
+        if fparam is not None and "ele_entropy" in full_results:
+            se = full_results["ele_entropy"].reshape(1, -1)
+            te = float(np.asarray(fparam).flat[0])
+            self.results["energy"] = float(free_energy + te * se[0, 0])
+            self.results["free_energy"] = float(free_energy)
+        else:
+            self.results["energy"] = free_energy
+            self.results["free_energy"] = free_energy
         self.results["forces"] = f[0]
         self.results["virial"] = v[0].reshape(3, 3)
 

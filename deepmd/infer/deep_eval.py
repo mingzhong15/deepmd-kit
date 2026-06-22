@@ -78,6 +78,7 @@ class DeepEvalBackend(ABC):
         "global_polar": "global_polar",
         "wfc": "wfc",
         "energy_derv_r_derv_r": "hessian",
+        "ele_entropy": "ele_entropy",
     }
 
     @abstractmethod
