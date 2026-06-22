@@ -38,6 +38,22 @@ bool DeepBaseModel::has_default_fparam() const {
   return dpbase->has_default_fparam();
 }
 
+bool DeepBaseModel::has_ele_entropy() const {
+  return dpbase->has_ele_entropy();
+}
+
+const std::vector<double>& DeepBaseModel::get_ele_entropy() const {
+  return dpbase->get_ele_entropy();
+}
+
+const std::vector<double>& DeepBaseModel::get_free_energy() const {
+  return dpbase->get_free_energy();
+}
+
+const std::vector<double>& DeepBaseModel::get_internal_energy() const {
+  return dpbase->get_internal_energy();
+}
+
 DeepBaseModelDevi::DeepBaseModelDevi() : inited(false), numb_models(0) {}
 
 // DeepBaseModelDevi::DeepBaseModelDevi(

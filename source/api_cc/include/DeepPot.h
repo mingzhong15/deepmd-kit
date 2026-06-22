@@ -205,6 +205,20 @@ class DeepPotBackend : public DeepBaseModelBackend {
    **/
   virtual int dim_chg_spin() const { return 0; }
 
+  virtual bool has_ele_entropy() const { return false; }
+  virtual const std::vector<double>& get_ele_entropy() const {
+    static const std::vector<double> empty;
+    return empty;
+  }
+  virtual const std::vector<double>& get_free_energy() const {
+    static const std::vector<double> empty;
+    return empty;
+  }
+  virtual const std::vector<double>& get_internal_energy() const {
+    static const std::vector<double> empty;
+    return empty;
+  }
+
   // charge_spin-aware computew overloads.  Default implementations call the
   // existing pure-virtual overloads (ignoring charge_spin) so that backends
   // that do not support charge/spin do not need any changes.  DeepPotPTExpt
@@ -665,6 +679,11 @@ class DeepPot : public DeepBaseModel {
   /** @} */
 
   int dim_chg_spin() const;
+
+  bool has_ele_entropy() const;
+  const std::vector<double>& get_ele_entropy() const;
+  const std::vector<double>& get_free_energy() const;
+  const std::vector<double>& get_internal_energy() const;
 
  protected:
   std::shared_ptr<deepmd::DeepPotBackend> dp;

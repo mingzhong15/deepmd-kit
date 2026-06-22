@@ -355,6 +355,20 @@ void DeepPotPT::compute(ENERGYVTYPE& ener,
     ele_entropy_.assign(cpu_se_.data_ptr<double>(),
                                cpu_se_.data_ptr<double>() + cpu_se_.numel());
   }
+  free_energy_ = ener;
+  internal_energy_.clear();
+  if (!ele_entropy_.empty() && !fparam.empty()) {
+    size_t nframes = ener.size();
+    size_t nfp = fparam.size() / nframes;
+    internal_energy_.resize(nframes);
+    for (size_t i = 0; i < nframes; ++i) {
+      double u = ener[i];
+      for (size_t j = 0; j < nfp; ++j) {
+        u += fparam[i * nfp + j] * ele_entropy_[i * nfp + j];
+      }
+      internal_energy_[i] = u;
+    }
+  }
 
   // bkw map
   force.resize(static_cast<size_t>(nframes) * fwd_map.size() * 3);
@@ -546,6 +560,20 @@ void DeepPotPT::compute(ENERGYVTYPE& ener,
     torch::Tensor cpu_se_ = flat_se_.to(torch::kCPU);
     ele_entropy_.assign(cpu_se_.data_ptr<double>(),
                                cpu_se_.data_ptr<double>() + cpu_se_.numel());
+  }
+  free_energy_ = ener;
+  internal_energy_.clear();
+  if (!ele_entropy_.empty() && !fparam.empty()) {
+    size_t nframes = ener.size();
+    size_t nfp = fparam.size() / nframes;
+    internal_energy_.resize(nframes);
+    for (size_t i = 0; i < nframes; ++i) {
+      double u = ener[i];
+      for (size_t j = 0; j < nfp; ++j) {
+        u += fparam[i * nfp + j] * ele_entropy_[i * nfp + j];
+      }
+      internal_energy_[i] = u;
+    }
   }
   if (atomic) {
     c10::IValue atom_virial_ = outputs.at("atom_virial");

@@ -254,6 +254,16 @@ class DeepPotPT : public DeepPotBackend {
     return ele_entropy_;
   }
 
+  bool has_ele_entropy() const override { return !ele_entropy_.empty(); }
+
+  const std::vector<double>& get_free_energy() const override {
+    return free_energy_;
+  }
+
+  const std::vector<double>& get_internal_energy() const override {
+    return internal_energy_;
+  }
+
   /**
    * @brief Get whether the atom dimension of aparam is nall instead of fparam.
    * @param[out] aparam_nall whether the atom dimension of aparam is nall
@@ -421,6 +431,8 @@ class DeepPotPT : public DeepPotBackend {
   bool has_default_fparam_;
   std::vector<double> default_chg_spin_;
   std::vector<double> ele_entropy_;
+  std::vector<double> free_energy_;
+  std::vector<double> internal_energy_;
   // copy neighbor list info from host
   torch::jit::script::Module module;
   double rcut;

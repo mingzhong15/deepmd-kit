@@ -80,6 +80,19 @@ class DeepBaseModelBackend {
    * @return true if the model has default frame parameters.
    **/
   virtual bool has_default_fparam() const = 0;
+  virtual bool has_ele_entropy() const { return false; }
+  virtual const std::vector<double>& get_ele_entropy() const {
+    static const std::vector<double> empty;
+    return empty;
+  }
+  virtual const std::vector<double>& get_free_energy() const {
+    static const std::vector<double> empty;
+    return empty;
+  }
+  virtual const std::vector<double>& get_internal_energy() const {
+    static const std::vector<double> empty;
+    return empty;
+  }
 };
 
 /**
@@ -151,6 +164,10 @@ class DeepBaseModel {
    * @return true if the model has default frame parameters.
    **/
   bool has_default_fparam() const;
+  bool has_ele_entropy() const;
+  const std::vector<double>& get_ele_entropy() const;
+  const std::vector<double>& get_free_energy() const;
+  const std::vector<double>& get_internal_energy() const;
 
  protected:
   bool inited;

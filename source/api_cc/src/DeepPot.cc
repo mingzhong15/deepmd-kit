@@ -610,6 +610,20 @@ template void DeepPot::compute_mixed_type<float>(
 
 int DeepPot::dim_chg_spin() const { return dp->dim_chg_spin(); }
 
+bool DeepPot::has_ele_entropy() const { return dp->has_ele_entropy(); }
+
+const std::vector<double>& DeepPot::get_ele_entropy() const {
+  return dp->get_ele_entropy();
+}
+
+const std::vector<double>& DeepPot::get_free_energy() const {
+  return dp->get_free_energy();
+}
+
+const std::vector<double>& DeepPot::get_internal_energy() const {
+  return dp->get_internal_energy();
+}
+
 DeepPotModelDevi::DeepPotModelDevi() {
   inited = false;
   numb_models = 0;
