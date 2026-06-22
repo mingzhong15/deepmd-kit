@@ -51,12 +51,21 @@ class PairDeepMD : public PairDeepBaseModel {
   void unpack_reverse_comm(int, int*, double*) override;
   double eval_energy_with_fparam(const std::vector<double>& fparam_override);
 
+  double get_free_energy_LAMMPS() const { return free_energy_val; }
+  double get_ele_entropy_LAMMPS() const { return ele_entropy_val; }
+  double get_internal_energy_LAMMPS() const {
+    return internal_energy_val;
+  }
+
  protected:
   deepmd_compat::DeepPot deep_pot;
   deepmd_compat::DeepPotModelDevi deep_pot_model_devi;
 
  private:
   CommBrickDeepMD* commdata_;
+  double free_energy_val;
+  double ele_entropy_val;
+  double internal_energy_val;
 };
 
 }  // namespace LAMMPS_NS

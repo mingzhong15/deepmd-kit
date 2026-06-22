@@ -122,7 +122,10 @@ static const char cite_user_deepmd_package[] =
 PairDeepMD::PairDeepMD(LAMMPS* lmp)
     : PairDeepBaseModel(
           lmp, cite_user_deepmd_package, deep_pot, deep_pot_model_devi),
-      commdata_(nullptr) {
+      commdata_(nullptr),
+      free_energy_val(0.0),
+      ele_entropy_val(0.0),
+      internal_energy_val(0.0) {
   // Constructor body can be empty
 }
 
@@ -624,9 +627,40 @@ void PairDeepMD::compute(int eflag, int vflag) {
     }
   }
 
+  // extract thermo values (independent of eflag, so compute can query them)
+  if (numb_models == 1) {
+    const auto& free_ener = deep_pot.get_free_energy();
+    if (!free_ener.empty()) {
+      free_energy_val = free_ener[0] * ener_unit_cvt_factor;
+    } else {
+      free_energy_val = dener * ener_unit_cvt_factor;
+    }
+    const auto& se = deep_pot.get_ele_entropy();
+    if (!se.empty()) {
+      ele_entropy_val = se[0] * ener_unit_cvt_factor;
+    } else {
+      ele_entropy_val = 0.0;
+    }
+    const auto& internal_ener = deep_pot.get_internal_energy();
+    if (!internal_ener.empty()) {
+      internal_energy_val = internal_ener[0] * ener_unit_cvt_factor;
+    } else {
+      internal_energy_val = dener * ener_unit_cvt_factor;
+    }
+  } else {
+    free_energy_val = dener * ener_unit_cvt_factor;
+    ele_entropy_val = 0.0;
+    internal_energy_val = dener * ener_unit_cvt_factor;
+  }
+
   // accumulate energy and virial
   if (eflag) {
-    eng_vdwl += scale[1][1] * dener * ener_unit_cvt_factor;
+    double dener_out = dener;
+    if (numb_models == 1 && out_internal_energy &&
+        !deep_pot.get_internal_energy().empty()) {
+      dener_out = deep_pot.get_internal_energy()[0];
+    }
+    eng_vdwl += scale[1][1] * dener_out * ener_unit_cvt_factor;
   }
   if (vflag) {
     virial[0] += 1.0 * dvirial[0] * scale[1][1] * ener_unit_cvt_factor;
@@ -654,6 +688,7 @@ static bool is_key(const string& input) {
   keys.push_back("relative_v");
   keys.push_back("virtual_len");
   keys.push_back("spin_norm");
+  keys.push_back("out_internal_energy");
 
   for (int ii = 0; ii < keys.size(); ++ii) {
     if (input == keys[ii]) {
@@ -863,6 +898,9 @@ void PairDeepMD::settings(int narg, char** arg) {
         spin_norm[ii] = atof(arg[iarg + ii + 1]);
       }
       iarg += numb_types_spin + 1;
+    } else if (string(arg[iarg]) == string("out_internal_energy")) {
+      out_internal_energy = true;
+      iarg += 1;
     }
   }
 

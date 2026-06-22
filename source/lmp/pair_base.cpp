@@ -383,6 +383,7 @@ PairDeepBaseModel::PairDeepBaseModel(
   eps_v = 0.;
   scale = NULL;
   do_ttm = false;
+  out_internal_energy = false;
   dim_fparam = 0;
   dim_aparam = 0;
   dim_chg_spin = 0;

@@ -102,6 +102,7 @@ class PairDeepBaseModel : public Pair {
   void make_ttm_aparam(std::vector<double>& dparam);
   bool do_ttm;
   std::string ttm_fix_id;
+  bool out_internal_energy;
   int *counts, *displacements;
   tagint *tagsend, *tagrecv;
   double *stdfsend, *stdfrecv;
