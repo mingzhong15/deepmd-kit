@@ -247,6 +247,14 @@ class DeepPotPT : public DeepPotBackend {
   void get_type_map(std::string& type_map);
 
   /**
+   * @brief Get the electronic entropy computed in the last call.
+   * @return The electronic entropy (empty if not computed).
+   **/
+  const std::vector<double>& get_electronic_entropy() const {
+    return electronic_entropy_;
+  }
+
+  /**
    * @brief Get whether the atom dimension of aparam is nall instead of fparam.
    * @param[out] aparam_nall whether the atom dimension of aparam is nall
    *instead of fparam.
@@ -412,6 +420,7 @@ class DeepPotPT : public DeepPotBackend {
   bool aparam_nall;
   bool has_default_fparam_;
   std::vector<double> default_chg_spin_;
+  std::vector<double> electronic_entropy_;
   // copy neighbor list info from host
   torch::jit::script::Module module;
   double rcut;

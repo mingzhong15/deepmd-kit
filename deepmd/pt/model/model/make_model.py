@@ -16,6 +16,8 @@ from deepmd.dpmodel.output_def import (
     OutputVariableCategory,
     OutputVariableOperation,
     check_operation_applied,
+    get_derv_fparam_name,
+    get_reduce_name,
 )
 from deepmd.pt.model.atomic_model.base_atomic_model import (
     BaseAtomicModel,
@@ -26,6 +28,7 @@ from deepmd.pt.model.model.model import (
 from deepmd.pt.model.model.transform_output import (
     communicate_extended_output,
     fit_output_to_model_output,
+    take_deriv_fparam,
 )
 from deepmd.pt.utils.env import (
     GLOBAL_PT_ENER_FLOAT_PRECISION,
@@ -310,12 +313,16 @@ def make_model(T_AtomicModel: type[BaseAtomicModel]) -> type:
             if self.atomic_model.do_grad_r() or self.atomic_model.do_grad_c():
                 if not force_coord.requires_grad:
                     force_coord = force_coord.clone().requires_grad_(True)
+            force_fparam = fp
+            if self.atomic_model.do_grad_fparam() and fp is not None:
+                if not force_fparam.requires_grad:
+                    force_fparam = force_fparam.clone().requires_grad_(True)
             atomic_ret = self.atomic_model.forward_common_atomic(
                 force_coord,
                 extended_atype,
                 nlist,
                 mapping=mapping,
-                fparam=fp,
+                fparam=force_fparam,
                 aparam=ap,
                 comm_dict=comm_dict,
                 charge_spin=charge_spin,
@@ -330,6 +337,16 @@ def make_model(T_AtomicModel: type[BaseAtomicModel]) -> type:
                 extended_coord_corr=extended_coord_corr,
             )
             model_predict = self._output_type_cast(model_predict, input_prec)
+            if (
+                self.atomic_model.do_grad_fparam()
+                and force_fparam is not None
+                and force_fparam.requires_grad
+            ):
+                energy_redu = model_predict[get_reduce_name("energy")]
+                derv_fp = take_deriv_fparam(
+                    energy_redu, force_fparam, create_graph=self.training
+                )
+                model_predict[get_derv_fparam_name("energy")] = derv_fp
             return model_predict
 
         def _input_type_cast(
@@ -541,6 +558,16 @@ def make_model(T_AtomicModel: type[BaseAtomicModel]) -> type:
             if var_name is None, returns if any of the variable is c_differentiable.
             """
             return self.atomic_model.do_grad_c(var_name)
+
+        def do_grad_fparam(
+            self,
+            var_name: str | None = None,
+        ) -> bool:
+            """Tell if the output variable `var_name` is fparam_differentiable.
+            if var_name is None, returns if any of the variable is
+            fparam_differentiable.
+            """
+            return self.atomic_model.do_grad_fparam(var_name)
 
         def change_type_map(
             self, type_map: list[str], model_with_new_type_stat: Any | None = None

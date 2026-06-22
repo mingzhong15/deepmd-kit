@@ -63,6 +63,8 @@ class EnergyStdLoss(TaskLoss):
         f_use_norm: bool = False,
         huber_delta: float | list[float] = 0.01,
         intensive_ener_virial: bool = False,
+        start_pref_se: float = 0.0,
+        limit_pref_se: float = 0.0,
         **kwargs: Any,
     ) -> None:
         r"""Construct a layer to compute loss on energy, force and virial.
@@ -132,6 +134,10 @@ class EnergyStdLoss(TaskLoss):
             first normalized by 1/N before applying the Huber formula, so this option does not
             provide a pure 1/N versus 1/N^2 toggle in that path. The default is false for
             backward compatibility with models trained using deepmd-kit <= 3.1.3.
+        start_pref_se : float
+            The prefactor of electronic entropy loss at the start of the training.
+        limit_pref_se : float
+            The prefactor of electronic entropy loss at the end of the training.
         **kwargs
             Other keyword arguments.
         """
@@ -152,6 +158,7 @@ class EnergyStdLoss(TaskLoss):
         self.has_ae = (start_pref_ae != 0.0 and limit_pref_ae != 0.0) or inference
         self.has_pf = (start_pref_pf != 0.0 and limit_pref_pf != 0.0) or inference
         self.has_gf = start_pref_gf != 0.0 and limit_pref_gf != 0.0
+        self.has_se = (start_pref_se != 0.0 and limit_pref_se != 0.0) or inference
 
         self.start_pref_e = start_pref_e
         self.limit_pref_e = limit_pref_e
@@ -165,6 +172,8 @@ class EnergyStdLoss(TaskLoss):
         self.limit_pref_pf = limit_pref_pf
         self.start_pref_gf = start_pref_gf
         self.limit_pref_gf = limit_pref_gf
+        self.start_pref_se = start_pref_se
+        self.limit_pref_se = limit_pref_se
         self.use_default_pf = use_default_pf
         self.relative_f = relative_f
         self.enable_atom_ener_coeff = enable_atom_ener_coeff
@@ -233,6 +242,7 @@ class EnergyStdLoss(TaskLoss):
         pref_ae = self.limit_pref_ae + (self.start_pref_ae - self.limit_pref_ae) * coef
         pref_pf = self.limit_pref_pf + (self.start_pref_pf - self.limit_pref_pf) * coef
         pref_gf = self.limit_pref_gf + (self.start_pref_gf - self.limit_pref_gf) * coef
+        pref_se = self.limit_pref_se + (self.start_pref_se - self.limit_pref_se) * coef
 
         loss = torch.zeros(1, dtype=env.GLOBAL_PT_FLOAT_PRECISION, device=env.DEVICE)[0]
         more_loss = {}
@@ -527,6 +537,41 @@ class EnergyStdLoss(TaskLoss):
                     f"Loss type {self.loss_func} is not implemented for atomic energy loss."
                 )
 
+        if (
+            self.has_se
+            and "electronic_entropy" in model_pred
+            and "electronic_entropy" in label
+        ):
+            find_se = label.get("find_electronic_entropy", 0.0)
+            pref_se = pref_se * find_se
+            se_pred = model_pred["electronic_entropy"]
+            se_label = label["electronic_entropy"]
+            if self.loss_func == "mse":
+                l2_se_loss = torch.mean(torch.square(se_pred - se_label))
+                if not self.inference:
+                    more_loss["l2_se_loss"] = self.display_if_exist(
+                        l2_se_loss.detach(), find_se
+                    )
+                loss += atom_norm**norm_exp * (pref_se * l2_se_loss)
+                rmse_se = l2_se_loss.sqrt() * atom_norm
+                more_loss["rmse_se"] = self.display_if_exist(rmse_se.detach(), find_se)
+            elif self.loss_func == "mae":
+                l1_se_loss = F.l1_loss(
+                    se_pred.reshape(-1),
+                    se_label.reshape(-1),
+                    reduction="mean",
+                )
+                loss += atom_norm * (pref_se * l1_se_loss)
+                more_loss["mae_se"] = self.display_if_exist(
+                    l1_se_loss.detach() * atom_norm,
+                    find_se,
+                )
+            else:
+                raise NotImplementedError(
+                    f"Loss type {self.loss_func} is not implemented for "
+                    "electronic entropy loss."
+                )
+
         if not self.inference:
             more_loss["rmse"] = torch.sqrt(loss.detach())
         return model_pred, loss, more_loss
@@ -608,6 +653,16 @@ class EnergyStdLoss(TaskLoss):
                     default=1.0,
                 )
             )
+        if self.has_se:
+            label_requirement.append(
+                DataRequirementItem(
+                    "electronic_entropy",
+                    ndof=1,
+                    atomic=False,
+                    must=False,
+                    high_prec=True,
+                )
+            )
         return label_requirement
 
     def serialize(self) -> dict:
@@ -620,7 +675,7 @@ class EnergyStdLoss(TaskLoss):
         """
         return {
             "@class": "EnergyLoss",
-            "@version": 4,
+            "@version": 5,
             "starter_learning_rate": self.starter_learning_rate,
             "start_pref_e": self.start_pref_e,
             "limit_pref_e": self.limit_pref_e,
@@ -643,6 +698,8 @@ class EnergyStdLoss(TaskLoss):
             "f_use_norm": self.f_use_norm,
             "use_default_pf": self.use_default_pf,
             "intensive_ener_virial": self.intensive_ener_virial,
+            "start_pref_se": self.start_pref_se,
+            "limit_pref_se": self.limit_pref_se,
         }
 
     @classmethod
@@ -661,11 +718,15 @@ class EnergyStdLoss(TaskLoss):
         """
         data = data.copy()
         version = data.pop("@version")
-        check_version_compatibility(version, 4, 1)
+        check_version_compatibility(version, 5, 1)
         data.pop("@class")
         # Handle backward compatibility for older versions without intensive_ener_virial
         if version < 3:
             data.setdefault("intensive_ener_virial", False)
+        # Handle backward compatibility for older versions without electronic entropy
+        if version < 5:
+            data.setdefault("start_pref_se", 0.0)
+            data.setdefault("limit_pref_se", 0.0)
         return cls(**data)
 
 

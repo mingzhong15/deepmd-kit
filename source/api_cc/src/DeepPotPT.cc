@@ -346,6 +346,15 @@ void DeepPotPT::compute(ENERGYVTYPE& ener,
   torch::Tensor cpu_virial_ = flat_virial_.to(torch::kCPU);
   virial.assign(cpu_virial_.data_ptr<VALUETYPE>(),
                 cpu_virial_.data_ptr<VALUETYPE>() + cpu_virial_.numel());
+  // Extract electronic entropy if available
+  electronic_entropy_.clear();
+  if (outputs.contains(c10::IValue("electronic_entropy"))) {
+    c10::IValue se_ = outputs.at("electronic_entropy");
+    torch::Tensor flat_se_ = se_.toTensor().view({-1}).to(floatType);
+    torch::Tensor cpu_se_ = flat_se_.to(torch::kCPU);
+    electronic_entropy_.assign(cpu_se_.data_ptr<double>(),
+                               cpu_se_.data_ptr<double>() + cpu_se_.numel());
+  }
 
   // bkw map
   force.resize(static_cast<size_t>(nframes) * fwd_map.size() * 3);
@@ -529,6 +538,15 @@ void DeepPotPT::compute(ENERGYVTYPE& ener,
   torch::Tensor cpu_virial_ = flat_virial_.to(torch::kCPU);
   virial.assign(cpu_virial_.data_ptr<VALUETYPE>(),
                 cpu_virial_.data_ptr<VALUETYPE>() + cpu_virial_.numel());
+  // Extract electronic entropy if available
+  electronic_entropy_.clear();
+  if (outputs.contains(c10::IValue("electronic_entropy"))) {
+    c10::IValue se_ = outputs.at("electronic_entropy");
+    torch::Tensor flat_se_ = se_.toTensor().view({-1}).to(floatType);
+    torch::Tensor cpu_se_ = flat_se_.to(torch::kCPU);
+    electronic_entropy_.assign(cpu_se_.data_ptr<double>(),
+                               cpu_se_.data_ptr<double>() + cpu_se_.numel());
+  }
   if (atomic) {
     c10::IValue atom_virial_ = outputs.at("atom_virial");
     c10::IValue atom_energy_ = outputs.at("atom_energy");

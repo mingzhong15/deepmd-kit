@@ -209,6 +209,7 @@ class InvarFitting(GeneralFitting):
                     reducible=True,
                     r_differentiable=True,
                     c_differentiable=True,
+                    fparam_differentiable=self.numb_fparam > 0,
                 ),
                 *self._middle_output_def(),
             ]

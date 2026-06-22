@@ -241,10 +241,30 @@ def make_base_atomic_model(
         def do_grad_(self, var_name: str, base: str) -> bool:
             """Tell if the output variable `var_name` is differentiable."""
             assert var_name is not None
-            assert base in ["c", "r"]
+            assert base in ["c", "r", "fparam"]
             if base == "c":
                 return self.fitting_output_def()[var_name].c_differentiable
+            if base == "fparam":
+                return self.fitting_output_def()[var_name].fparam_differentiable
             return self.fitting_output_def()[var_name].r_differentiable
+
+        def do_grad_fparam(
+            self,
+            var_name: str | None = None,
+        ) -> bool:
+            """Tell if the output variable `var_name` is fparam_differentiable.
+            if var_name is None, returns if any of the variable is
+            fparam_differentiable.
+
+            """
+            odef = self.fitting_output_def()
+            if var_name is None:
+                require: list[bool] = []
+                for vv in odef.keys():
+                    require.append(self.do_grad_(vv, "fparam"))
+                return any(require)
+            else:
+                return self.do_grad_(var_name, "fparam")
 
     setattr(BAM, fwd_method_name, BAM.fwd)
     delattr(BAM, "fwd")

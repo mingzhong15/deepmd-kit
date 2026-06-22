@@ -96,6 +96,41 @@ def task_deriv_one(
     return extended_force, extended_virial
 
 
+def take_deriv_fparam(
+    energy_redu: torch.Tensor,
+    fparam: torch.Tensor,
+    create_graph: bool = True,
+) -> torch.Tensor:
+    """Compute the negative derivative of the reduced energy w.r.t. fparam.
+
+    S_e = -dA/dT_e (electronic entropy), following the same sign convention
+    as force = -dE/dr.
+
+    Parameters
+    ----------
+    energy_redu
+        Reduced total energy with shape (nf, 1) or (nf,).
+    fparam
+        Frame parameter tensor with shape (nf, nfp) and requires_grad=True.
+    create_graph
+        If True, keep the gradient graph for second-order backward.
+
+    Returns
+    -------
+    torch.Tensor
+        Negative derivative w.r.t. fparam, shape (nf, nfp).
+    """
+    faked_grad = torch.ones_like(energy_redu)
+    derv_fparam = torch.autograd.grad(
+        [energy_redu],
+        [fparam],
+        grad_outputs=[faked_grad],
+        create_graph=create_graph,
+        retain_graph=True,
+    )[0]
+    return -derv_fparam
+
+
 def get_leading_dims(
     vv: torch.Tensor,
     vdef: OutputVariableDef,
@@ -380,4 +415,8 @@ def communicate_extended_output(
                 if not do_atomic_virial:
                     # pop atomic virial, because it is not correctly calculated.
                     new_ret.pop(kk_derv_c)
+    # Preserve fparam derivatives (frame-level, no extended-to-local communication needed)
+    for kk in model_ret:
+        if kk.endswith("_derv_fp"):
+            new_ret[kk] = model_ret[kk]
     return new_ret

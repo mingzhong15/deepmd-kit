@@ -201,6 +201,7 @@ class OutputVariableDef:
         r_hessian: bool = False,
         magnetic: bool = False,
         intensive: bool = False,
+        fparam_differentiable: bool = False,
     ) -> None:
         self.name = name
         self.shape = list(shape)
@@ -214,6 +215,7 @@ class OutputVariableDef:
         self.r_differentiable = r_differentiable
         self.c_differentiable = c_differentiable
         self.intensive = intensive
+        self.fparam_differentiable = fparam_differentiable
         if self.c_differentiable and not self.r_differentiable:
             raise ValueError("c differentiable requires r_differentiable")
         if self.reducible and not self.atomic:
@@ -356,6 +358,10 @@ def get_deriv_name_mag(name: str) -> tuple[str, str]:
 
 def get_hessian_name(name: str) -> str:
     return name + "_derv_r_derv_r"
+
+
+def get_derv_fparam_name(name: str) -> str:
+    return name + "_derv_fp"
 
 
 def apply_operation(var_def: OutputVariableDef, op: OutputVariableOperation) -> int:
