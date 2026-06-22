@@ -250,8 +250,8 @@ class DeepPotPT : public DeepPotBackend {
    * @brief Get the electronic entropy computed in the last call.
    * @return The electronic entropy (empty if not computed).
    **/
-  const std::vector<double>& get_electronic_entropy() const {
-    return electronic_entropy_;
+  const std::vector<double>& get_ele_entropy() const {
+    return ele_entropy_;
   }
 
   /**
@@ -420,7 +420,7 @@ class DeepPotPT : public DeepPotBackend {
   bool aparam_nall;
   bool has_default_fparam_;
   std::vector<double> default_chg_spin_;
-  std::vector<double> electronic_entropy_;
+  std::vector<double> ele_entropy_;
   // copy neighbor list info from host
   torch::jit::script::Module module;
   double rcut;

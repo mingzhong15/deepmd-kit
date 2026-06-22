@@ -4178,6 +4178,8 @@ def loss_ener() -> list[Argument]:
         "so this flag may have limited or no effect for those terms. "
         "The default is false for backward compatibility with models trained using deepmd-kit <= 3.1.3."
     )
+    doc_start_pref_se = start_pref("electronic entropy", abbr="se")
+    doc_limit_pref_se = limit_pref("electronic entropy")
     return [
         Argument(
             "start_pref_e",
@@ -4333,6 +4335,20 @@ def loss_ener() -> list[Argument]:
             optional=True,
             default=False,
             doc=doc_intensive_ener_virial,
+        ),
+        Argument(
+            "start_pref_se",
+            [float, int],
+            optional=True,
+            default=0.00,
+            doc=doc_start_pref_se,
+        ),
+        Argument(
+            "limit_pref_se",
+            [float, int],
+            optional=True,
+            default=0.00,
+            doc=doc_limit_pref_se,
         ),
     ]
 

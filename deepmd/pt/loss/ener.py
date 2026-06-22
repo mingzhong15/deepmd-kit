@@ -537,15 +537,11 @@ class EnergyStdLoss(TaskLoss):
                     f"Loss type {self.loss_func} is not implemented for atomic energy loss."
                 )
 
-        if (
-            self.has_se
-            and "electronic_entropy" in model_pred
-            and "electronic_entropy" in label
-        ):
-            find_se = label.get("find_electronic_entropy", 0.0)
+        if self.has_se and "ele_entropy" in model_pred and "ele_entropy" in label:
+            find_se = label.get("find_ele_entropy", 0.0)
             pref_se = pref_se * find_se
-            se_pred = model_pred["electronic_entropy"]
-            se_label = label["electronic_entropy"]
+            se_pred = model_pred["ele_entropy"]
+            se_label = label["ele_entropy"]
             if self.loss_func == "mse":
                 l2_se_loss = torch.mean(torch.square(se_pred - se_label))
                 if not self.inference:
@@ -656,7 +652,7 @@ class EnergyStdLoss(TaskLoss):
         if self.has_se:
             label_requirement.append(
                 DataRequirementItem(
-                    "electronic_entropy",
+                    "ele_entropy",
                     ndof=1,
                     atomic=False,
                     must=False,
