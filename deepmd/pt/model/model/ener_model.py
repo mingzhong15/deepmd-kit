@@ -115,6 +115,11 @@ class EnergyModel(DPModelCommon, DPEnergyModel_):
                 model_predict["hessian"] = model_ret["energy_derv_r_derv_r"].squeeze(-3)
             if self.do_grad_fparam("energy"):
                 model_predict["ele_entropy"] = model_ret["energy_derv_fp"]
+                if fparam is not None:
+                    model_predict["t_entropy"] = (
+                        fparam.to(model_ret["energy_derv_fp"].dtype)
+                        * model_ret["energy_derv_fp"]
+                    )
         else:
             model_predict = model_ret
             model_predict["updated_coord"] += coord
@@ -164,6 +169,11 @@ class EnergyModel(DPModelCommon, DPEnergyModel_):
                 model_predict["mask"] = model_ret["mask"]
             if self.do_grad_fparam("energy"):
                 model_predict["ele_entropy"] = model_ret["energy_derv_fp"]
+                if fparam is not None:
+                    model_predict["t_entropy"] = (
+                        fparam.to(model_ret["energy_derv_fp"].dtype)
+                        * model_ret["energy_derv_fp"]
+                    )
         else:
             model_predict = model_ret
         return model_predict

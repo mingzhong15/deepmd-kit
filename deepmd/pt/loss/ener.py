@@ -65,6 +65,8 @@ class EnergyStdLoss(TaskLoss):
         intensive_ener_virial: bool = False,
         start_pref_se: float = 0.0,
         limit_pref_se: float = 0.0,
+        start_pref_ts: float = 0.0,
+        limit_pref_ts: float = 0.0,
         **kwargs: Any,
     ) -> None:
         r"""Construct a layer to compute loss on energy, force and virial.
@@ -138,6 +140,10 @@ class EnergyStdLoss(TaskLoss):
             The prefactor of electronic entropy loss at the start of the training.
         limit_pref_se : float
             The prefactor of electronic entropy loss at the end of the training.
+        start_pref_ts : float
+            The prefactor of entropy contribution (T*S) loss at the start of the training.
+        limit_pref_ts : float
+            The prefactor of entropy contribution (T*S) loss at the end of the training.
         **kwargs
             Other keyword arguments.
         """
@@ -159,6 +165,7 @@ class EnergyStdLoss(TaskLoss):
         self.has_pf = (start_pref_pf != 0.0 and limit_pref_pf != 0.0) or inference
         self.has_gf = start_pref_gf != 0.0 and limit_pref_gf != 0.0
         self.has_se = (start_pref_se != 0.0 and limit_pref_se != 0.0) or inference
+        self.has_ts = (start_pref_ts != 0.0 and limit_pref_ts != 0.0) or inference
 
         self.start_pref_e = start_pref_e
         self.limit_pref_e = limit_pref_e
@@ -174,6 +181,8 @@ class EnergyStdLoss(TaskLoss):
         self.limit_pref_gf = limit_pref_gf
         self.start_pref_se = start_pref_se
         self.limit_pref_se = limit_pref_se
+        self.start_pref_ts = start_pref_ts
+        self.limit_pref_ts = limit_pref_ts
         self.use_default_pf = use_default_pf
         self.relative_f = relative_f
         self.enable_atom_ener_coeff = enable_atom_ener_coeff
@@ -243,6 +252,7 @@ class EnergyStdLoss(TaskLoss):
         pref_pf = self.limit_pref_pf + (self.start_pref_pf - self.limit_pref_pf) * coef
         pref_gf = self.limit_pref_gf + (self.start_pref_gf - self.limit_pref_gf) * coef
         pref_se = self.limit_pref_se + (self.start_pref_se - self.limit_pref_se) * coef
+        pref_ts = self.limit_pref_ts + (self.start_pref_ts - self.limit_pref_ts) * coef
 
         loss = torch.zeros(1, dtype=env.GLOBAL_PT_FLOAT_PRECISION, device=env.DEVICE)[0]
         more_loss = {}
@@ -568,6 +578,41 @@ class EnergyStdLoss(TaskLoss):
                     "electronic entropy loss."
                 )
 
+        if self.has_ts and "t_entropy" in model_pred and "ele_entropy" in label:
+            fparam = input_dict.get("fparam")
+            if fparam is not None:
+                find_ts = label.get("find_ele_entropy", 0.0)
+                pref_ts = pref_ts * find_ts
+                ts_pred = model_pred["t_entropy"]
+                ts_label = fparam.to(label["ele_entropy"].dtype) * label["ele_entropy"]
+                if self.loss_func == "mse":
+                    l2_ts_loss = torch.mean(torch.square(ts_pred - ts_label))
+                    if not self.inference:
+                        more_loss["l2_ts_loss"] = self.display_if_exist(
+                            l2_ts_loss.detach(), find_ts
+                        )
+                    loss += atom_norm**norm_exp * (pref_ts * l2_ts_loss)
+                    rmse_ts = l2_ts_loss.sqrt() * atom_norm
+                    more_loss["rmse_ts"] = self.display_if_exist(
+                        rmse_ts.detach(), find_ts
+                    )
+                elif self.loss_func == "mae":
+                    l1_ts_loss = F.l1_loss(
+                        ts_pred.reshape(-1),
+                        ts_label.reshape(-1),
+                        reduction="mean",
+                    )
+                    loss += atom_norm * (pref_ts * l1_ts_loss)
+                    more_loss["mae_ts"] = self.display_if_exist(
+                        l1_ts_loss.detach() * atom_norm,
+                        find_ts,
+                    )
+                else:
+                    raise NotImplementedError(
+                        f"Loss type {self.loss_func} is not implemented for "
+                        "entropy contribution loss."
+                    )
+
         if not self.inference:
             more_loss["rmse"] = torch.sqrt(loss.detach())
         return model_pred, loss, more_loss
@@ -649,7 +694,7 @@ class EnergyStdLoss(TaskLoss):
                     default=1.0,
                 )
             )
-        if self.has_se:
+        if self.has_se or self.has_ts:
             label_requirement.append(
                 DataRequirementItem(
                     "ele_entropy",
@@ -671,7 +716,7 @@ class EnergyStdLoss(TaskLoss):
         """
         return {
             "@class": "EnergyLoss",
-            "@version": 5,
+            "@version": 6,
             "starter_learning_rate": self.starter_learning_rate,
             "start_pref_e": self.start_pref_e,
             "limit_pref_e": self.limit_pref_e,
@@ -696,6 +741,8 @@ class EnergyStdLoss(TaskLoss):
             "intensive_ener_virial": self.intensive_ener_virial,
             "start_pref_se": self.start_pref_se,
             "limit_pref_se": self.limit_pref_se,
+            "start_pref_ts": self.start_pref_ts,
+            "limit_pref_ts": self.limit_pref_ts,
         }
 
     @classmethod
@@ -714,7 +761,7 @@ class EnergyStdLoss(TaskLoss):
         """
         data = data.copy()
         version = data.pop("@version")
-        check_version_compatibility(version, 5, 1)
+        check_version_compatibility(version, 6, 1)
         data.pop("@class")
         # Handle backward compatibility for older versions without intensive_ener_virial
         if version < 3:
@@ -723,6 +770,10 @@ class EnergyStdLoss(TaskLoss):
         if version < 5:
             data.setdefault("start_pref_se", 0.0)
             data.setdefault("limit_pref_se", 0.0)
+        # Handle backward compatibility for older versions without entropy contribution loss
+        if version < 6:
+            data.setdefault("start_pref_ts", 0.0)
+            data.setdefault("limit_pref_ts", 0.0)
         return cls(**data)
 
 

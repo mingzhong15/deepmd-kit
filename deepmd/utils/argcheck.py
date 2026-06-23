@@ -4180,6 +4180,10 @@ def loss_ener() -> list[Argument]:
     )
     doc_start_pref_se = start_pref("electronic entropy", abbr="se")
     doc_limit_pref_se = limit_pref("electronic entropy")
+    doc_start_pref_ts = start_pref(
+        "entropy contribution (T*S)", label="ele_entropy", abbr="ts"
+    )
+    doc_limit_pref_ts = limit_pref("entropy contribution (T*S)")
     return [
         Argument(
             "start_pref_e",
@@ -4349,6 +4353,20 @@ def loss_ener() -> list[Argument]:
             optional=True,
             default=0.00,
             doc=doc_limit_pref_se,
+        ),
+        Argument(
+            "start_pref_ts",
+            [float, int],
+            optional=True,
+            default=0.00,
+            doc=doc_start_pref_ts,
+        ),
+        Argument(
+            "limit_pref_ts",
+            [float, int],
+            optional=True,
+            default=0.00,
+            doc=doc_limit_pref_ts,
         ),
     ]
 
