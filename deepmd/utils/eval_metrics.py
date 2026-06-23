@@ -44,6 +44,7 @@ DP_TEST_SPIN_WEIGHTED_METRIC_KEYS = {
 }
 DP_TEST_WEIGHTED_FORCE_METRIC_KEYS = ("mae_fw", "rmse_fw")
 DP_TEST_HESSIAN_METRIC_KEYS = ("mae_h", "rmse_h")
+DP_TEST_ELENTROPY_METRIC_KEYS = ("mae_se", "rmse_se")
 
 
 def mae(diff: np.ndarray) -> float:

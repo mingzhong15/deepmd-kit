@@ -49,6 +49,32 @@ class DeepPot(DeepEval):
     where `e`, `f` and `v` are predicted energy, force and virial of the system, respectively.
     """
 
+    def __init__(
+        self,
+        model_file: str,
+        *args: Any,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(model_file, *args, **kwargs)
+        if self.get_dim_fparam() > 0:
+            self._add_ele_entropy_to_output_def()
+
+    def _add_ele_entropy_to_output_def(self) -> None:
+        if "ele_entropy" in self.deep_eval.output_def.var_defs:
+            return
+        old_fit = list(self.deep_eval.output_def.fitting_output_def)
+        old_fit.append(
+            OutputVariableDef(
+                "ele_entropy",
+                shape=[self.get_dim_fparam()],
+                reducible=False,
+                r_differentiable=False,
+                c_differentiable=False,
+                atomic=False,
+            )
+        )
+        self.deep_eval.output_def = ModelOutputDef(FittingOutputDef(old_fit))
+
     @property
     def output_def(self) -> ModelOutputDef:
         """Get the output definition of this model."""
@@ -186,6 +212,9 @@ class DeepPot(DeepEval):
             when atomic is True.
         hessian
             The Hessian matrix of the system, in shape (nframes, 3 * natoms, 3 * natoms). Returned when available.
+        ele_entropy
+            The electronic entropy of the system, in shape (nframes, dim_fparam). Returned
+            when frame parameters are available.
         """
         # This method has been used by:
         # documentation python.md
@@ -251,6 +280,9 @@ class DeepPot(DeepEval):
                 nframes, 3 * natoms, 3 * natoms
             )
             result = (*list(result), hessian)
+        if self.get_dim_fparam() > 0:
+            ele_entropy = results["ele_entropy"].reshape(nframes, self.get_dim_fparam())
+            result = (*list(result), ele_entropy)
         return result
 
     def eval_full(

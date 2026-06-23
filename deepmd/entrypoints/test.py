@@ -53,6 +53,7 @@ from deepmd.utils.data_system import (
     process_systems,
 )
 from deepmd.utils.eval_metrics import (
+    DP_TEST_ELENTROPY_METRIC_KEYS,
     DP_TEST_HESSIAN_METRIC_KEYS,
     DP_TEST_SPIN_WEIGHTED_METRIC_KEYS,
     DP_TEST_WEIGHTED_FORCE_METRIC_KEYS,
@@ -603,6 +604,8 @@ def test_ener(
         data.add("force_mag", 3, atomic=True, must=False, high_prec=False)
     if dp.has_hessian:
         data.add("hessian", 1, atomic=True, must=True, high_prec=False)
+    if dp.get_dim_fparam() > 0:
+        data.add("ele_entropy", 1, atomic=False, must=False, high_prec=True)
 
     test_data = data.get_test()
     find_energy = test_data.get("find_energy")
@@ -610,6 +613,7 @@ def test_ener(
     find_virial = test_data.get("find_virial")
     find_force_mag = test_data.get("find_force_mag")
     find_atom_pref = test_data.get("find_atom_pref")
+    find_ele_entropy = test_data.get("find_ele_entropy", 0.0)
     mixed_type = data.mixed_type
     natoms = len(test_data["type"][0])
     nframes = test_data["box"].shape[0]
@@ -665,6 +669,7 @@ def test_ener(
     hessian = None
     force_m = None
     mask_mag = None
+    ele_entropy = None
     if dp.has_hessian:
         hessian = ret[3]
         hessian = hessian.reshape([numb_test, -1])
@@ -684,6 +689,9 @@ def test_ener(
             force_m = force_m.reshape([numb_test, -1])
             mask_mag = ret[4]
             mask_mag = mask_mag.reshape([numb_test, -1])
+    if dp.get_dim_fparam() > 0:
+        ele_entropy = ret[-1]
+        ele_entropy = ele_entropy.reshape([numb_test, -1])
     out_put_spin = dp.get_ntypes_spin() != 0 or dp.has_spin
     spin_metrics = None
     force_r = None
@@ -776,6 +784,16 @@ def test_ener(
         )
         mae_h = hessian_metrics.mae
         rmse_h = hessian_metrics.rmse
+    if find_ele_entropy == 1 and ele_entropy is not None:
+        se_metrics = compute_error_stat(
+            ele_entropy.reshape([-1]),
+            test_data["ele_entropy"][:numb_test].reshape([-1]),
+        )
+        mae_se = se_metrics.mae
+        rmse_se = se_metrics.rmse
+        dict_to_return.update(
+            se_metrics.as_weighted_average_errors(*DP_TEST_ELENTROPY_METRIC_KEYS)
+        )
     if has_atom_ener:
         atomic_energy_metrics = compute_error_stat(
             ae.reshape([-1]),
@@ -843,6 +861,9 @@ def test_ener(
         dict_to_return.update(
             hessian_metrics.as_weighted_average_errors(*DP_TEST_HESSIAN_METRIC_KEYS)
         )
+    if find_ele_entropy == 1 and ele_entropy is not None:
+        log.info(f"Ele entropy MAE    : {mae_se:e} eV/K")
+        log.info(f"Ele entropy RMSE   : {rmse_se:e} eV/K")
 
     if detail_file is not None:
         _write_energy_test_details(
@@ -904,6 +925,9 @@ def print_ener_sys_avg(avg: dict[str, float]) -> None:
     if "rmse_h" in avg:
         log.info(f"Hessian MAE         : {avg['mae_h']:e} eV/Å^2")
         log.info(f"Hessian RMSE        : {avg['rmse_h']:e} eV/Å^2")
+    if "rmse_se" in avg:
+        log.info(f"Ele entropy MAE     : {avg['mae_se']:e} eV/K")
+        log.info(f"Ele entropy RMSE    : {avg['rmse_se']:e} eV/K")
 
 
 def test_dos(
