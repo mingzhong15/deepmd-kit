@@ -548,35 +548,40 @@ class EnergyStdLoss(TaskLoss):
                 )
 
         if self.has_se and "ele_entropy" in model_pred and "ele_entropy" in label:
-            find_se = label.get("find_ele_entropy", 0.0)
-            pref_se = pref_se * find_se
-            se_pred = model_pred["ele_entropy"]
-            se_label = label["ele_entropy"]
-            if self.loss_func == "mse":
-                l2_se_loss = torch.mean(torch.square(se_pred - se_label))
-                if not self.inference:
-                    more_loss["l2_se_loss"] = self.display_if_exist(
-                        l2_se_loss.detach(), find_se
+            fparam = input_dict.get("fparam")
+            if fparam is not None:
+                find_se = label.get("find_ele_entropy", 0.0)
+                pref_se = pref_se * find_se
+                se_pred = model_pred["ele_entropy"]
+                se_label = label["ele_entropy"]
+                if self.loss_func == "mse":
+                    l2_se_loss = torch.mean(
+                        fparam.to(se_pred.dtype) * torch.square(se_pred - se_label)
                     )
-                loss += atom_norm**norm_exp * (pref_se * l2_se_loss)
-                rmse_se = l2_se_loss.sqrt() * atom_norm
-                more_loss["rmse_se"] = self.display_if_exist(rmse_se.detach(), find_se)
-            elif self.loss_func == "mae":
-                l1_se_loss = F.l1_loss(
-                    se_pred.reshape(-1),
-                    se_label.reshape(-1),
-                    reduction="mean",
-                )
-                loss += atom_norm * (pref_se * l1_se_loss)
-                more_loss["mae_se"] = self.display_if_exist(
-                    l1_se_loss.detach() * atom_norm,
-                    find_se,
-                )
-            else:
-                raise NotImplementedError(
-                    f"Loss type {self.loss_func} is not implemented for "
-                    "electronic entropy loss."
-                )
+                    if not self.inference:
+                        more_loss["l2_se_loss"] = self.display_if_exist(
+                            l2_se_loss.detach(), find_se
+                        )
+                    loss += atom_norm**norm_exp * (pref_se * l2_se_loss)
+                    rmse_se = l2_se_loss.sqrt() * atom_norm
+                    more_loss["rmse_se"] = self.display_if_exist(
+                        rmse_se.detach(), find_se
+                    )
+                elif self.loss_func == "mae":
+                    diff_se = se_pred - se_label
+                    l1_se_loss = torch.mean(
+                        fparam.to(se_pred.dtype) * torch.abs(diff_se)
+                    )
+                    loss += atom_norm * (pref_se * l1_se_loss)
+                    more_loss["mae_se"] = self.display_if_exist(
+                        l1_se_loss.detach() * atom_norm,
+                        find_se,
+                    )
+                else:
+                    raise NotImplementedError(
+                        f"Loss type {self.loss_func} is not implemented for "
+                        "electronic entropy loss."
+                    )
 
         if self.has_ts and "t_entropy" in model_pred and "ele_entropy" in label:
             fparam = input_dict.get("fparam")
