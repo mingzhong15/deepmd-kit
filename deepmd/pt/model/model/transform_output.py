@@ -128,6 +128,7 @@ def take_deriv_fparam(
         create_graph=create_graph,
         retain_graph=True,
     )[0]
+    assert derv_fparam is not None
     return -derv_fparam
 
 

@@ -314,7 +314,7 @@ def make_model(T_AtomicModel: type[BaseAtomicModel]) -> type:
                 if not force_coord.requires_grad:
                     force_coord = force_coord.clone().requires_grad_(True)
             force_fparam = fp
-            if self.atomic_model.do_grad_fparam() and fp is not None:
+            if self.atomic_model.do_grad_fparam() and force_fparam is not None:
                 if not force_fparam.requires_grad:
                     force_fparam = force_fparam.clone().requires_grad_(True)
             atomic_ret = self.atomic_model.forward_common_atomic(
