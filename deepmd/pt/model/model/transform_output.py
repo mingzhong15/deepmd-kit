@@ -121,10 +121,11 @@ def take_deriv_fparam(
         Negative derivative w.r.t. fparam, shape (nf, nfp).
     """
     faked_grad = torch.ones_like(energy_redu)
+    lst = torch.jit.annotate(list[torch.Tensor | None], [faked_grad])
     derv_fparam = torch.autograd.grad(
         [energy_redu],
         [fparam],
-        grad_outputs=[faked_grad],
+        grad_outputs=lst,
         create_graph=create_graph,
         retain_graph=True,
     )[0]
