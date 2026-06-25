@@ -2,6 +2,7 @@
 /**
  * See https://docs.lammps.org/Developer_plugins.html
  */
+#include "compute_deepdos.h"
 #include "compute_deepmd_fparam_dedn.h"
 #include "compute_deeptensor_atom.h"
 #include "deepmd_version.h"
@@ -18,6 +19,10 @@ using namespace LAMMPS_NS;
 
 static Pair* pairdeepmd(LAMMPS* lmp) { return new PairDeepMD(lmp); }
 static Pair* pairdeepspin(LAMMPS* lmp) { return new PairDeepSpin(lmp); }
+
+static Compute* computedeepdos(LAMMPS* lmp, int narg, char** arg) {
+  return new ComputeDeepdos(lmp, narg, arg);
+}
 
 static Compute* computedeepmdtensoratom(LAMMPS* lmp, int narg, char** arg) {
   return new ComputeDeeptensorAtom(lmp, narg, arg);
@@ -55,6 +60,13 @@ extern "C" void lammpsplugin_init(void* lmp, void* handle, void* regfunc) {
   plugin.author = "Duo Zhang";
   plugin.creator.v1 = (lammpsplugin_factory1*)&pairdeepspin;
   plugin.handle = handle;
+  (*register_plugin)(&plugin, lmp);
+
+  plugin.style = "compute";
+  plugin.name = "deepdos";
+  plugin.info = "compute deepdos " STR_GIT_SUMM;
+  plugin.author = "DeePMD-kit Authors";
+  plugin.creator.v2 = (lammpsplugin_factory2*)&computedeepdos;
   (*register_plugin)(&plugin, lmp);
 
   plugin.style = "compute";
