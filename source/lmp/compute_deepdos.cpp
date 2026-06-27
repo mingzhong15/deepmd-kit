@@ -157,7 +157,14 @@ void ComputeDeepdos::compute_peratom() {
   deepmd_compat::InputNlist lmp_list(list->inum, list->ilist, list->numneigh,
                                      list->firstneigh);
   lmp_list.set_mask(NEIGHMASK);
-  lmp_list.set_mapping(list->mapping);
+  // mapping (for GNN models that gather ghost features via the LAMMPS atom-map)
+  std::vector<int> mapping_vec(nall, -1);
+  if (comm->nprocs == 1 && atom->map_style != Atom::MAP_NONE) {
+    for (int ii = 0; ii < nall; ++ii) {
+      mapping_vec[ii] = atom->map(atom->tag[ii]);
+    }
+  }
+  lmp_list.set_mapping(mapping_vec.data());
 
   // declare outputs
   std::vector<VALUETYPE> dos, atom_dos;
@@ -218,7 +225,14 @@ void ComputeDeepdos::compute_vector() {
   deepmd_compat::InputNlist lmp_list(list->inum, list->ilist, list->numneigh,
                                      list->firstneigh);
   lmp_list.set_mask(NEIGHMASK);
-  lmp_list.set_mapping(list->mapping);
+  // mapping (for GNN models that gather ghost features via the LAMMPS atom-map)
+  std::vector<int> mapping_vec(nall, -1);
+  if (comm->nprocs == 1 && atom->map_style != Atom::MAP_NONE) {
+    for (int ii = 0; ii < nall; ++ii) {
+      mapping_vec[ii] = atom->map(atom->tag[ii]);
+    }
+  }
+  lmp_list.set_mapping(mapping_vec.data());
 
   std::vector<VALUETYPE> dos, atom_dos;
   try {
