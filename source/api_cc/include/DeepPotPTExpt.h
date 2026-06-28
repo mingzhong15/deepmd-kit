@@ -307,9 +307,12 @@ class DeepPotPTExpt : public DeepPotBackend {
   std::vector<std::string> output_keys;  // sorted internal output key names
   bool do_atomic_virial;  // whether model was exported with atomic virial corr
   int nnei;               // expected nlist nnei dimension (= sum(sel))
+  bool lower_input_is_edge_ = false;
   NeighborListData nlist_data;
-  at::Tensor mapping_tensor;     // cached mapping tensor (LAMMPS path)
-  at::Tensor firstneigh_tensor;  // cached nlist tensor (LAMMPS path)
+  at::Tensor mapping_tensor;         // cached mapping tensor (LAMMPS path)
+  at::Tensor firstneigh_tensor;      // cached nlist tensor (LAMMPS path)
+  at::Tensor edge_index_tensor;      // cached local edge graph (LAMMPS path)
+  at::Tensor edge_index_ext_tensor;  // cached extended edge graph (LAMMPS path)
   std::unique_ptr<torch::inductor::AOTIModelPackageLoader> loader;
   // Optional second AOTInductor artifact for the multi-rank GNN code
   // path (Phase 4).  Loaded only if the .pt2 metadata reports
@@ -384,6 +387,17 @@ class DeepPotPTExpt : public DeepPotBackend {
                                        const torch::Tensor& aparam,
                                        const torch::Tensor& charge_spin);
 
+  std::vector<torch::Tensor> run_model_edges(
+      const torch::Tensor& coord,
+      const torch::Tensor& atype,
+      const torch::Tensor& edge_index,
+      const torch::Tensor& edge_vec,
+      const torch::Tensor& edge_scatter_index,
+      const torch::Tensor& edge_mask,
+      const torch::Tensor& fparam,
+      const torch::Tensor& aparam,
+      const torch::Tensor& charge_spin);
+
   /**
    * @brief Run the with-comm .pt2 artifact with comm tensors appended.
    *
@@ -399,6 +413,30 @@ class DeepPotPTExpt : public DeepPotBackend {
       const torch::Tensor& atype,
       const torch::Tensor& nlist,
       const torch::Tensor& mapping,
+      const torch::Tensor& fparam,
+      const torch::Tensor& aparam,
+      const torch::Tensor& charge_spin,
+      const std::vector<at::Tensor>& comm_tensors);
+
+  /**
+   * @brief Run the with-comm edge (SeZM) ``.pt2`` artifact with comm tensors.
+   *
+   * The edge schema indexes the extended node set, so ``edge_index`` and
+   * ``edge_scatter_index`` coincide. ``atype`` carries owned atoms (fitting,
+   * energy read-out) while ``extended_atype`` embeds ghost neighbours.
+   *
+   * @param[in] comm_tensors 8 comm tensors in canonical positional order:
+   *            send_list, send_proc, recv_proc, send_num, recv_num,
+   *            communicator, nlocal, nghost.
+   */
+  std::vector<torch::Tensor> run_model_edges_with_comm(
+      const torch::Tensor& coord,
+      const torch::Tensor& atype,
+      const torch::Tensor& extended_atype,
+      const torch::Tensor& edge_index,
+      const torch::Tensor& edge_vec,
+      const torch::Tensor& edge_scatter_index,
+      const torch::Tensor& edge_mask,
       const torch::Tensor& fparam,
       const torch::Tensor& aparam,
       const torch::Tensor& charge_spin,
