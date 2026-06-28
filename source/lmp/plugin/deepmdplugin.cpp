@@ -4,6 +4,7 @@
  */
 #include "compute_deepdos.h"
 #include "compute_deepmd_fparam_dedn.h"
+#include "compute_deepmd_thermo.h"
 #include "compute_deeptensor_atom.h"
 #include "deepmd_version.h"
 #include "fix_dplr.h"
@@ -30,6 +31,10 @@ static Compute* computedeepmdtensoratom(LAMMPS* lmp, int narg, char** arg) {
 
 static Compute* computedeepmdfparamdedn(LAMMPS* lmp, int narg, char** arg) {
   return new ComputeDeepmdFparamDedn(lmp, narg, arg);
+}
+
+static Compute* computedeepmdthermo(LAMMPS* lmp, int narg, char** arg) {
+  return new ComputeDeepmdThermo(lmp, narg, arg);
 }
 
 static Fix* fixdplr(LAMMPS* lmp, int narg, char** arg) {
@@ -81,6 +86,13 @@ extern "C" void lammpsplugin_init(void* lmp, void* handle, void* regfunc) {
   plugin.info = "compute deepmd/fparam/dedn " STR_GIT_SUMM;
   plugin.author = "Li Fu";
   plugin.creator.v2 = (lammpsplugin_factory2*)&computedeepmdfparamdedn;
+  (*register_plugin)(&plugin, lmp);
+
+  plugin.style = "compute";
+  plugin.name = "deepmd/thermo";
+  plugin.info = "compute deepmd/thermo " STR_GIT_SUMM;
+  plugin.author = "DeePMD-kit Authors";
+  plugin.creator.v2 = (lammpsplugin_factory2*)&computedeepmdthermo;
   (*register_plugin)(&plugin, lmp);
 
   plugin.style = "fix";

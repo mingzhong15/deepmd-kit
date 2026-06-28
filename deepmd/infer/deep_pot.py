@@ -62,7 +62,7 @@ class DeepPot(DeepEval):
     def _add_ele_entropy_to_output_def(self) -> None:
         if "ele_entropy" in self.deep_eval.output_def.var_defs:
             return
-        old_fit = list(self.deep_eval.output_def.fitting_output_def)
+        old_fit = list(self.deep_eval.output_def.def_outp.var_defs.values())
         old_fit.append(
             OutputVariableDef(
                 "ele_entropy",
