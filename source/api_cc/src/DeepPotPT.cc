@@ -350,7 +350,7 @@ void DeepPotPT::compute(ENERGYVTYPE& ener,
   ele_entropy_.clear();
   if (outputs.contains(c10::IValue("ele_entropy"))) {
     c10::IValue se_ = outputs.at("ele_entropy");
-    torch::Tensor flat_se_ = se_.toTensor().view({-1}).to(floatType);
+    torch::Tensor flat_se_ = se_.toTensor().view({-1}).to(torch::kFloat64);
     torch::Tensor cpu_se_ = flat_se_.to(torch::kCPU);
     ele_entropy_.assign(cpu_se_.data_ptr<double>(),
                                cpu_se_.data_ptr<double>() + cpu_se_.numel());
@@ -556,7 +556,7 @@ void DeepPotPT::compute(ENERGYVTYPE& ener,
   ele_entropy_.clear();
   if (outputs.contains(c10::IValue("ele_entropy"))) {
     c10::IValue se_ = outputs.at("ele_entropy");
-    torch::Tensor flat_se_ = se_.toTensor().view({-1}).to(floatType);
+    torch::Tensor flat_se_ = se_.toTensor().view({-1}).to(torch::kFloat64);
     torch::Tensor cpu_se_ = flat_se_.to(torch::kCPU);
     ele_entropy_.assign(cpu_se_.data_ptr<double>(),
                                cpu_se_.data_ptr<double>() + cpu_se_.numel());
