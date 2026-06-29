@@ -67,6 +67,7 @@ class EnergyStdLoss(TaskLoss):
         limit_pref_se: float = 0.0,
         start_pref_ts: float = 0.0,
         limit_pref_ts: float = 0.0,
+        dim_fparam: int = 1,
         **kwargs: Any,
     ) -> None:
         r"""Construct a layer to compute loss on energy, force and virial.
@@ -166,6 +167,22 @@ class EnergyStdLoss(TaskLoss):
         self.has_gf = start_pref_gf != 0.0 and limit_pref_gf != 0.0
         self.has_se = (start_pref_se != 0.0 and limit_pref_se != 0.0) or inference
         self.has_ts = (start_pref_ts != 0.0 and limit_pref_ts != 0.0) or inference
+        self.dim_fparam = dim_fparam
+        if (
+            dim_fparam > 1
+            and not inference
+            and (
+                start_pref_se != 0.0
+                or limit_pref_se != 0.0
+                or start_pref_ts != 0.0
+                or limit_pref_ts != 0.0
+            )
+        ):
+            raise ValueError(
+                "ele_entropy loss with non-zero se/ts prefactors is only "
+                "supported for dim_fparam=1 in training mode; "
+                f"got dim_fparam={dim_fparam}"
+            )
 
         self.start_pref_e = start_pref_e
         self.limit_pref_e = limit_pref_e
@@ -703,7 +720,7 @@ class EnergyStdLoss(TaskLoss):
             label_requirement.append(
                 DataRequirementItem(
                     "ele_entropy",
-                    ndof=1,
+                    ndof=self.dim_fparam,
                     atomic=False,
                     must=False,
                     high_prec=True,
@@ -721,7 +738,7 @@ class EnergyStdLoss(TaskLoss):
         """
         return {
             "@class": "EnergyLoss",
-            "@version": 6,
+            "@version": 7,
             "starter_learning_rate": self.starter_learning_rate,
             "start_pref_e": self.start_pref_e,
             "limit_pref_e": self.limit_pref_e,
@@ -748,6 +765,7 @@ class EnergyStdLoss(TaskLoss):
             "limit_pref_se": self.limit_pref_se,
             "start_pref_ts": self.start_pref_ts,
             "limit_pref_ts": self.limit_pref_ts,
+            "dim_fparam": self.dim_fparam,
         }
 
     @classmethod
@@ -766,7 +784,7 @@ class EnergyStdLoss(TaskLoss):
         """
         data = data.copy()
         version = data.pop("@version")
-        check_version_compatibility(version, 6, 1)
+        check_version_compatibility(version, 7, 1)
         data.pop("@class")
         # Handle backward compatibility for older versions without intensive_ener_virial
         if version < 3:
@@ -779,6 +797,9 @@ class EnergyStdLoss(TaskLoss):
         if version < 6:
             data.setdefault("start_pref_ts", 0.0)
             data.setdefault("limit_pref_ts", 0.0)
+        # Handle backward compatibility for older versions without dim_fparam
+        if version < 7:
+            data.setdefault("dim_fparam", 1)
         return cls(**data)
 
 

@@ -56,8 +56,14 @@ class DeepPot(DeepEval):
         **kwargs: Any,
     ) -> None:
         super().__init__(model_file, *args, **kwargs)
+        self._has_ele_entropy = False
         if self.get_dim_fparam() > 0:
             self._add_ele_entropy_to_output_def()
+
+    @property
+    def has_ele_entropy(self) -> bool:
+        """Check if the model produced electronic entropy in the last call."""
+        return self._has_ele_entropy
 
     def _add_ele_entropy_to_output_def(self) -> None:
         if "ele_entropy" in self.deep_eval.output_def.var_defs:
@@ -280,9 +286,12 @@ class DeepPot(DeepEval):
                 nframes, 3 * natoms, 3 * natoms
             )
             result = (*list(result), hessian)
-        if self.get_dim_fparam() > 0:
+        if self.get_dim_fparam() > 0 and "ele_entropy" in results:
+            self._has_ele_entropy = True
             ele_entropy = results["ele_entropy"].reshape(nframes, self.get_dim_fparam())
             result = (*list(result), ele_entropy)
+        else:
+            self._has_ele_entropy = False
         return result
 
     def eval_full(

@@ -627,7 +627,13 @@ def test_ener(
     if dp.has_hessian:
         data.add("hessian", 1, atomic=True, must=True, high_prec=False)
     if dp.get_dim_fparam() > 0:
-        data.add("ele_entropy", 1, atomic=False, must=False, high_prec=True)
+        data.add(
+            "ele_entropy",
+            dp.get_dim_fparam(),
+            atomic=False,
+            must=False,
+            high_prec=True,
+        )
 
     test_data = data.get_test()
     find_energy = test_data.get("find_energy")
@@ -636,6 +642,10 @@ def test_ener(
     find_force_mag = test_data.get("find_force_mag")
     find_atom_pref = test_data.get("find_atom_pref")
     find_ele_entropy = test_data.get("find_ele_entropy", 0.0)
+    if dp.get_dim_fparam() > 0 and find_ele_entropy == 0:
+        log.warning(
+            "ele_entropy labels not found; skipping electronic entropy metrics."
+        )
     mixed_type = data.mixed_type
     natoms = len(test_data["type"][0])
     nframes = test_data["box"].shape[0]
@@ -711,7 +721,7 @@ def test_ener(
             force_m = force_m.reshape([numb_test, -1])
             mask_mag = ret[4]
             mask_mag = mask_mag.reshape([numb_test, -1])
-    if dp.get_dim_fparam() > 0:
+    if dp.has_ele_entropy:
         ele_entropy = ret[-1]
         ele_entropy = ele_entropy.reshape([numb_test, -1])
     out_put_spin = dp.get_ntypes_spin() != 0 or dp.has_spin

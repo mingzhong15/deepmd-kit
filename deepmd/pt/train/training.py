@@ -2496,6 +2496,7 @@ def get_loss(
     loss_params: dict[str, Any], start_lr: float, _ntypes: int, _model: Any
 ) -> TaskLoss:
     loss_type = loss_params.get("type", "ener")
+    loss_params["dim_fparam"] = _model.get_dim_fparam()
     if whether_hessian(loss_params):
         loss_params["starter_learning_rate"] = start_lr
         return EnergyHessianStdLoss(**loss_params)

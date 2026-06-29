@@ -76,6 +76,21 @@ class EnergyModel(DPModelCommon, DPEnergyModel_):
             )
         return output_def
 
+    def _extend_entropy_output(
+        self,
+        model_predict: dict,
+        model_ret: dict,
+        fparam: torch.Tensor | None,
+    ) -> None:
+        """Append ele_entropy and t_entropy (if fparam given) to model_predict."""
+        if self.do_grad_fparam("energy") and "energy_derv_fp" in model_ret:
+            model_predict["ele_entropy"] = model_ret["energy_derv_fp"]
+            if fparam is not None:
+                model_predict["t_entropy"] = (
+                    fparam.to(model_ret["energy_derv_fp"].dtype)
+                    * model_ret["energy_derv_fp"]
+                )
+
     def forward(
         self,
         coord: torch.Tensor,
@@ -113,13 +128,7 @@ class EnergyModel(DPModelCommon, DPEnergyModel_):
                 model_predict["mask"] = model_ret["mask"]
             if self._hessian_enabled:
                 model_predict["hessian"] = model_ret["energy_derv_r_derv_r"].squeeze(-3)
-            if self.do_grad_fparam("energy") and "energy_derv_fp" in model_ret:
-                model_predict["ele_entropy"] = model_ret["energy_derv_fp"]
-                if fparam is not None:
-                    model_predict["t_entropy"] = (
-                        fparam.to(model_ret["energy_derv_fp"].dtype)
-                        * model_ret["energy_derv_fp"]
-                    )
+            self._extend_entropy_output(model_predict, model_ret, fparam)
         else:
             model_predict = model_ret
             model_predict["updated_coord"] += coord
@@ -167,13 +176,7 @@ class EnergyModel(DPModelCommon, DPEnergyModel_):
                 model_predict["dforce"] = model_ret["dforce"]
             if "mask" in model_ret:
                 model_predict["mask"] = model_ret["mask"]
-            if self.do_grad_fparam("energy") and "energy_derv_fp" in model_ret:
-                model_predict["ele_entropy"] = model_ret["energy_derv_fp"]
-                if fparam is not None:
-                    model_predict["t_entropy"] = (
-                        fparam.to(model_ret["energy_derv_fp"].dtype)
-                        * model_ret["energy_derv_fp"]
-                    )
+            self._extend_entropy_output(model_predict, model_ret, fparam)
         else:
             model_predict = model_ret
         return model_predict

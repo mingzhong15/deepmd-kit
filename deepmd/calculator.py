@@ -155,9 +155,11 @@ class DP(Calculator):
         v = full_results["energy_derv_c_redu"].reshape(1, 9)
         free_energy = e[0][0]
         if fparam is not None and "ele_entropy" in full_results:
-            se = full_results["ele_entropy"].reshape(1, -1)
-            te = float(np.asarray(fparam).flat[0])
-            self.results["energy"] = float(free_energy + te * se[0, 0])
+            se = np.asarray(full_results["ele_entropy"]).reshape(1, -1)
+            fp = np.asarray(fparam).reshape(1, -1)
+            n = min(fp.shape[1], se.shape[1])
+            ts = float((fp[0, :n] * se[0, :n]).sum())
+            self.results["energy"] = float(free_energy + ts)
             self.results["free_energy"] = float(free_energy)
         else:
             self.results["energy"] = free_energy
