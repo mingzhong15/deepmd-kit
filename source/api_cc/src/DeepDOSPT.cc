@@ -60,15 +60,12 @@ void DeepDOSPT::init(const std::string& model,
     device = torch::Device(torch::kCPU);
     std::cout << "load model from: " << model << " to cpu " << std::endl;
   } else {
-#if GOOGLE_CUDA || TENSORFLOW_USE_ROCM
-    DPErrcheck(DPSetDevice(gpu_id));
-#endif
     std::cout << "load model from: " << model << " to gpu " << gpu_id
               << std::endl;
   }
 
-  std::unordered_map<std::string, std::string> metadata = {{"type", ""}};
-  module = torch::jit::load(model, device, metadata);
+  std::map<std::string, std::string> extra_files;
+  module = torch::jit::load(model, device, extra_files);
   module.eval();
   do_message_passing = module.run_method("has_message_passing").toBool();
 
@@ -189,7 +186,7 @@ void DeepDOSPT::compute(std::vector<VALUETYPE>& dos,
   at::Tensor firstneigh = createNlistTensor(nlist_data.jlist);
   firstneigh_tensor = firstneigh.to(torch::kInt64).to(device);
 
-  bool do_atom_virial_tensor = false;
+  int do_atom_virial_tensor = 0;
 
   // forward pass through the model
   c10::IValue outputs_ival;

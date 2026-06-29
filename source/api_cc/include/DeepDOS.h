@@ -13,10 +13,6 @@ class DeepDOSBase {
   DeepDOSBase(){};
   virtual ~DeepDOSBase(){};
 
-  DeepDOSBase(const std::string& model,
-              const int& gpu_rank = 0,
-              const std::string& file_content = "");
-
   virtual void init(const std::string& model,
                     const int& gpu_rank = 0,
                     const std::string& file_content = "") = 0;

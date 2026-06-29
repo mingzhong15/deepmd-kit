@@ -293,7 +293,7 @@ class DeepPotPT : public DeepPotBackend {
                 const std::vector<double>& box,
                 const std::vector<double>& fparam,
                 const std::vector<double>& aparam,
-                const bool atomic);
+                const bool atomic) override;
   void computew(std::vector<double>& ener,
                 std::vector<float>& force,
                 std::vector<float>& virial,
@@ -304,7 +304,7 @@ class DeepPotPT : public DeepPotBackend {
                 const std::vector<float>& box,
                 const std::vector<float>& fparam,
                 const std::vector<float>& aparam,
-                const bool atomic);
+                const bool atomic) override;
   void computew(std::vector<double>& ener,
                 std::vector<double>& force,
                 std::vector<double>& virial,
@@ -318,7 +318,7 @@ class DeepPotPT : public DeepPotBackend {
                 const int& ago,
                 const std::vector<double>& fparam,
                 const std::vector<double>& aparam,
-                const bool atomic);
+                const bool atomic) override;
   void computew(std::vector<double>& ener,
                 std::vector<float>& force,
                 std::vector<float>& virial,
@@ -332,7 +332,7 @@ class DeepPotPT : public DeepPotBackend {
                 const int& ago,
                 const std::vector<float>& fparam,
                 const std::vector<float>& aparam,
-                const bool atomic);
+                const bool atomic) override;
   // Keep the base charge_spin-aware computew / computew_mixed_type overloads
   // visible: the non-charge_spin declarations below would otherwise hide them
   // for callers using the static type DeepPotPT.
@@ -349,7 +349,7 @@ class DeepPotPT : public DeepPotBackend {
                            const std::vector<double>& box,
                            const std::vector<double>& fparam,
                            const std::vector<double>& aparam,
-                           const bool atomic);
+                           const bool atomic) override;
   void computew_mixed_type(std::vector<double>& ener,
                            std::vector<float>& force,
                            std::vector<float>& virial,
@@ -361,7 +361,7 @@ class DeepPotPT : public DeepPotBackend {
                            const std::vector<float>& box,
                            const std::vector<float>& fparam,
                            const std::vector<float>& aparam,
-                           const bool atomic);
+                           const bool atomic) override;
 
   // charge_spin overloads — pass runtime charge/spin per call
   void computew(std::vector<double>& ener,

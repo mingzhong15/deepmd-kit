@@ -627,6 +627,7 @@ void PairDeepMD::compute(int eflag, int vflag) {
     }
   }
 
+#ifdef DP_USE_CXX_API
   // extract thermo values (independent of eflag, so compute can query them)
   if (numb_models == 1) {
     const auto& free_ener = deep_pot.get_free_energy();
@@ -662,6 +663,11 @@ void PairDeepMD::compute(int eflag, int vflag) {
     }
     eng_vdwl += scale[1][1] * dener_out * ener_unit_cvt_factor;
   }
+#else
+  if (eflag) {
+    eng_vdwl += scale[1][1] * dener * ener_unit_cvt_factor;
+  }
+#endif
   if (vflag) {
     virial[0] += 1.0 * dvirial[0] * scale[1][1] * ener_unit_cvt_factor;
     virial[1] += 1.0 * dvirial[4] * scale[1][1] * ener_unit_cvt_factor;

@@ -244,8 +244,10 @@ void ComputeDeepdos::compute_vector() {
   // store the total dos result
   if (dos.empty()) {
     // model doesn't provide global dos; compute by summing atom_dos
+    double* new_dos_vector = nullptr;
+    memory->create(new_dos_vector, size_vector, "deepdos:dos_vector");
     memory->destroy(dos_vector);
-    memory->create(dos_vector, size_vector, "deepdos:dos_vector");
+    dos_vector = new_dos_vector;
     for (int ii = 0; ii < numb_dos; ++ii) {
       double sum = 0.0;
       for (int jj = 0; jj < nlocal; ++jj) {
@@ -254,8 +256,10 @@ void ComputeDeepdos::compute_vector() {
       MPI_Allreduce(&sum, &dos_vector[ii], 1, MPI_DOUBLE, MPI_SUM, world);
     }
   } else {
+    double* new_dos_vector = nullptr;
+    memory->create(new_dos_vector, size_vector, "deepdos:dos_vector");
     memory->destroy(dos_vector);
-    memory->create(dos_vector, size_vector, "deepdos:dos_vector");
+    dos_vector = new_dos_vector;
     for (int ii = 0; ii < numb_dos; ++ii) {
       dos_vector[ii] = dos[ii];
     }

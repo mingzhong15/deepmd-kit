@@ -239,6 +239,8 @@ void DeepPotPT::compute(ENERGYVTYPE& ener,
       mapping_tensor =
           torch::from_blob(mapping.data(), {1, nall_real}, int_option)
               .to(device);
+    } else {
+      mapping_tensor = c10::optional<torch::Tensor>();
     }
   }
   at::Tensor firstneigh = createNlistTensor(nlist_data.jlist);
@@ -253,11 +255,12 @@ void DeepPotPT::compute(ENERGYVTYPE& ener,
   }
   c10::optional<torch::Tensor> aparam_tensor;
   if (!aparam_.empty()) {
+    int aparam_natoms = aparam_nall ? nall_real : nloc_real;
     aparam_tensor =
         torch::from_blob(
             const_cast<VALUETYPE*>(aparam_.data()),
-            {1, lmp_list.inum,
-             static_cast<std::int64_t>(aparam_.size()) / lmp_list.inum},
+            {1, aparam_natoms,
+             static_cast<std::int64_t>(daparam)},
             options)
             .to(device);
   }
@@ -334,7 +337,7 @@ void DeepPotPT::compute(ENERGYVTYPE& ener,
   c10::IValue energy_ = outputs.at("energy");
   c10::IValue force_ = outputs.at("extended_force");
   c10::IValue virial_ = outputs.at("virial");
-  torch::Tensor flat_energy_ = energy_.toTensor().view({-1});
+  torch::Tensor flat_energy_ = energy_.toTensor().view({-1}).to(floatType);
   torch::Tensor cpu_energy_ = flat_energy_.to(torch::kCPU);
   ener.assign(cpu_energy_.data_ptr<ENERGYTYPE>(),
               cpu_energy_.data_ptr<ENERGYTYPE>() + cpu_energy_.numel());
@@ -360,11 +363,13 @@ void DeepPotPT::compute(ENERGYVTYPE& ener,
   if (!ele_entropy_.empty() && !fparam.empty()) {
     size_t nframes = ener.size();
     size_t nfp = fparam.size() / nframes;
+    size_t nse = ele_entropy_.size() / nframes;
+    size_t nterm = std::min(nfp, nse);
     internal_energy_.resize(nframes);
     for (size_t i = 0; i < nframes; ++i) {
       double u = ener[i];
-      for (size_t j = 0; j < nfp; ++j) {
-        u += fparam[i * nfp + j] * ele_entropy_[i * nfp + j];
+      for (size_t j = 0; j < nterm; ++j) {
+        u += fparam[i * nfp + j] * ele_entropy_[i * nse + j];
       }
       internal_energy_[i] = u;
     }
@@ -540,7 +545,7 @@ void DeepPotPT::compute(ENERGYVTYPE& ener,
   c10::IValue energy_ = outputs.at("energy");
   c10::IValue force_ = outputs.at("force");
   c10::IValue virial_ = outputs.at("virial");
-  torch::Tensor flat_energy_ = energy_.toTensor().view({-1});
+  torch::Tensor flat_energy_ = energy_.toTensor().view({-1}).to(floatType);
   torch::Tensor cpu_energy_ = flat_energy_.to(torch::kCPU);
   ener.assign(cpu_energy_.data_ptr<ENERGYTYPE>(),
               cpu_energy_.data_ptr<ENERGYTYPE>() + cpu_energy_.numel());
@@ -566,11 +571,13 @@ void DeepPotPT::compute(ENERGYVTYPE& ener,
   if (!ele_entropy_.empty() && !fparam.empty()) {
     size_t nframes = ener.size();
     size_t nfp = fparam.size() / nframes;
+    size_t nse = ele_entropy_.size() / nframes;
+    size_t nterm = std::min(nfp, nse);
     internal_energy_.resize(nframes);
     for (size_t i = 0; i < nframes; ++i) {
       double u = ener[i];
-      for (size_t j = 0; j < nfp; ++j) {
-        u += fparam[i * nfp + j] * ele_entropy_[i * nfp + j];
+      for (size_t j = 0; j < nterm; ++j) {
+        u += fparam[i * nfp + j] * ele_entropy_[i * nse + j];
       }
       internal_energy_[i] = u;
     }
