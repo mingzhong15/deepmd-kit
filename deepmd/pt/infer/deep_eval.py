@@ -925,10 +925,11 @@ class DeepEval(DeepEvalBackend):
             # force
             return [nframes, *odef.shape[:-1], natoms, 3]
         elif odef.category == OutputVariableCategory.OUT:
-            # atom_energy, atom_tensor
-            # Something wrong here?
-            # return [nframes, *shape, natoms, 1]
-            return [nframes, natoms, *odef.shape, 1]
+            if odef.atomic:
+                # atom_energy, atom_tensor
+                return [nframes, natoms, *odef.shape, 1]
+            # per-frame output, e.g. ele_entropy
+            return [nframes, *odef.shape]
         elif odef.category == OutputVariableCategory.DERV_R_DERV_R:
             return [nframes, 3 * natoms, 3 * natoms]
             # return [nframes, *odef.shape, 3 * natoms, 3 * natoms]
