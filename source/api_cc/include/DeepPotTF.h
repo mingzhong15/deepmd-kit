@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 #pragma once
 
+#include <type_traits>
+#include <vector>
+
 #include "DeepPot.h"
 #include "common.h"
 #include "commonTF.h"
@@ -216,6 +219,33 @@ class DeepPotTF : public DeepPotBackend {
    **/
   bool has_default_fparam() const { return false; };
 
+  /**
+   * @brief Check if the model produced electronic entropy in the last call.
+   * @return true if ele_entropy is available (model uses frame parameters).
+   **/
+  bool has_ele_entropy() const override { return !ele_entropy_.empty(); }
+  /**
+   * @brief Get the electronic entropy computed in the last call.
+   * @return The electronic entropy (empty if not computed).
+   **/
+  const std::vector<double>& get_ele_entropy() const override {
+    return ele_entropy_;
+  }
+  /**
+   * @brief Get the free energy (Helmholtz) computed in the last call.
+   * @return The free energy, equal to the model energy.
+   **/
+  const std::vector<double>& get_free_energy() const override {
+    return free_energy_;
+  }
+  /**
+   * @brief Get the internal energy computed in the last call.
+   * @return The internal energy = energy + fparam * ele_entropy.
+   **/
+  const std::vector<double>& get_internal_energy() const override {
+    return internal_energy_;
+  }
+
   // forward to template class
   void computew(std::vector<double>& ener,
                 std::vector<double>& force,
@@ -309,6 +339,10 @@ class DeepPotTF : public DeepPotBackend {
   int dfparam;
   int daparam;
   bool aparam_nall;
+  // electronic entropy and derived thermodynamic quantities
+  std::vector<double> ele_entropy_;
+  std::vector<double> free_energy_;
+  std::vector<double> internal_energy_;
   /**
    * @brief Validate the size of frame and atomic parameters.
    * @param[in] nframes The number of frames.
@@ -343,6 +377,61 @@ class DeepPotTF : public DeepPotBackend {
   NeighborListData nlist_data;
   InputNlist nlist;
   AtomMap atommap;
+  /**
+   * @brief Post-process electronic entropy into member variables.
+   * Stores ele_entropy_, free_energy_ (= energy), and internal_energy_
+   * (= energy + sum_j fparam[j] * ele_entropy[j]) per frame. This is
+   * called after run_model with the returned dele_entropy vector and
+   * the per-frame fparam; both may be empty, in which case only
+   * free_energy_ is set.
+   * @param[in] ener Per-frame model energy.
+   * @param[in] dele_entropy Per-frame electronic entropy (flattened
+   *                        to nf*nfp), or empty if not available.
+   * @param[in] fparam Per-frame frame parameters (nf*nfp), or empty.
+   * @param[in] nframes Number of frames.
+   **/
+  void _post_ele_entropy(const std::vector<double>& ener,
+                         const std::vector<ENERGYTYPE>& dele_entropy,
+                         const std::vector<double>& fparam,
+                         const int nframes);
+  /**
+   * @brief Post-process electronic entropy into member variables.
+   * Stores ele_entropy_, free_energy_ (= energy), and internal_energy_
+   * (= energy + sum_j fparam[j] * ele_entropy[j]) per frame. Called
+   * after run_model with the returned dele_entropy and per-frame fparam;
+   * both may be empty, in which case only free_energy_ is set.
+   * @tparam FPARAMVT The frame parameter value type (double or float).
+   **/
+  template <typename FPARAMVT>
+  void _post_ele_entropy_tmpl(
+      const std::vector<ENERGYTYPE>& dener_vec,
+      const std::vector<ENERGYTYPE>& dele_entropy,
+      const std::vector<FPARAMVT>& fparam,
+      const int nframes) {
+    std::vector<double> ener_vec(dener_vec.begin(), dener_vec.end());
+    std::vector<double> fparam_d(fparam.begin(), fparam.end());
+    _post_ele_entropy(ener_vec, dele_entropy, fparam_d, nframes);
+  }
+  /**
+   * @brief Convert ENERGYVTYPE (scalar or vector) to a per-frame
+   * std::vector<ENERGYTYPE> for use with _post_ele_entropy_tmpl.
+   * The scalar overload wraps into a 1-element vector; the vector
+   * overload is a no-op copy. Dispatched via std::is_same SFINAE.
+   **/
+  template <typename ENERGYVTYPE>
+  static typename std::enable_if<
+      std::is_same<ENERGYVTYPE, ENERGYTYPE>::value,
+      std::vector<ENERGYTYPE>>::type
+  _ener_to_vec(const ENERGYVTYPE& dener, int /*nframes*/) {
+    return std::vector<ENERGYTYPE>(1, dener);
+  }
+  template <typename ENERGYVTYPE>
+  static typename std::enable_if<
+      std::is_same<ENERGYVTYPE, std::vector<ENERGYTYPE>>::value,
+      std::vector<ENERGYTYPE>>::type
+  _ener_to_vec(const ENERGYVTYPE& dener, int /*nframes*/) {
+    return dener;
+  }
 };
 
 }  // namespace deepmd

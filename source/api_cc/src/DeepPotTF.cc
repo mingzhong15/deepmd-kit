@@ -19,6 +19,8 @@ static void run_model(
     std::vector<ENERGYTYPE>& dener,
     std::vector<VALUETYPE>& dforce_,
     std::vector<VALUETYPE>& dvirial,
+    std::vector<ENERGYTYPE>& dele_entropy,
+    const bool& fetch_ele_entropy,
     Session* session,
     const std::vector<std::pair<std::string, Tensor>>& input_tensors,
     const AtomMap& atommap,
@@ -27,6 +29,7 @@ static void run_model(
   unsigned nloc = atommap.get_type().size();
   unsigned nall = nloc + nghost;
   dener.resize(nframes);
+  dele_entropy.clear();
   if (nloc == 0) {
     // no backward map needed
     // dforce of size nall * 3
@@ -38,10 +41,14 @@ static void run_model(
     return;
   }
 
+  std::vector<std::string> fetch_names = {"o_energy", "o_force", "o_atom_energy",
+                                          "o_atom_virial"};
+  if (fetch_ele_entropy) {
+    fetch_names.push_back("o_ele_entropy");
+  }
   std::vector<Tensor> output_tensors;
-  check_status(session->Run(
-      input_tensors, {"o_energy", "o_force", "o_atom_energy", "o_atom_virial"},
-      {}, &output_tensors));
+  check_status(
+      session->Run(input_tensors, fetch_names, {}, &output_tensors));
 
   Tensor output_e = output_tensors[0];
   Tensor output_f = output_tensors[1];
@@ -74,6 +81,15 @@ static void run_model(
       dvirial[kk * 9 + 8] += (VALUETYPE)1.0 * oav(kk * nall * 9 + 9 * ii + 8);
     }
   }
+  // extract electronic entropy (S_e = -dE/dfparam) if requested
+  if (fetch_ele_entropy) {
+    Tensor output_se = output_tensors[4];
+    auto ose = output_se.flat<ENERGYTYPE>();
+    dele_entropy.resize(ose.size());
+    for (int ii = 0; ii < ose.size(); ++ii) {
+      dele_entropy[ii] = ose(ii);
+    }
+  }
   dforce_ = dforce;
   atommap.backward<VALUETYPE>(dforce_.begin(), dforce.begin(), 3, nframes,
                               nall);
@@ -83,6 +99,8 @@ template void run_model<double, double>(
     std::vector<ENERGYTYPE>& dener,
     std::vector<double>& dforce_,
     std::vector<double>& dvirial,
+    std::vector<ENERGYTYPE>& dele_entropy,
+    const bool& fetch_ele_entropy,
     Session* session,
     const std::vector<std::pair<std::string, Tensor>>& input_tensors,
     const AtomMap& atommap,
@@ -93,6 +111,8 @@ template void run_model<double, float>(
     std::vector<ENERGYTYPE>& dener,
     std::vector<float>& dforce_,
     std::vector<float>& dvirial,
+    std::vector<ENERGYTYPE>& dele_entropy,
+    const bool& fetch_ele_entropy,
     Session* session,
     const std::vector<std::pair<std::string, Tensor>>& input_tensors,
     const AtomMap& atommap,
@@ -103,6 +123,8 @@ template void run_model<float, double>(
     std::vector<ENERGYTYPE>& dener,
     std::vector<double>& dforce_,
     std::vector<double>& dvirial,
+    std::vector<ENERGYTYPE>& dele_entropy,
+    const bool& fetch_ele_entropy,
     Session* session,
     const std::vector<std::pair<std::string, Tensor>>& input_tensors,
     const AtomMap& atommap,
@@ -113,6 +135,8 @@ template void run_model<float, float>(
     std::vector<ENERGYTYPE>& dener,
     std::vector<float>& dforce_,
     std::vector<float>& dvirial,
+    std::vector<ENERGYTYPE>& dele_entropy,
+    const bool& fetch_ele_entropy,
     Session* session,
     const std::vector<std::pair<std::string, Tensor>>& input_tensors,
     const AtomMap& atommap,
@@ -126,6 +150,8 @@ static void run_model(
     std::vector<VALUETYPE>& dvirial,
     std::vector<VALUETYPE>& datom_energy_,
     std::vector<VALUETYPE>& datom_virial_,
+    std::vector<ENERGYTYPE>& dele_entropy,
+    const bool& fetch_ele_entropy,
     Session* session,
     const std::vector<std::pair<std::string, Tensor>>& input_tensors,
     const deepmd::AtomMap& atommap,
@@ -134,6 +160,7 @@ static void run_model(
   unsigned nloc = atommap.get_type().size();
   unsigned nall = nloc + nghost;
   dener.resize(nframes);
+  dele_entropy.clear();
   if (nloc == 0) {
     // no backward map needed
     // dforce of size nall * 3
@@ -152,9 +179,13 @@ static void run_model(
   }
   std::vector<Tensor> output_tensors;
 
-  check_status(session->Run(
-      input_tensors, {"o_energy", "o_force", "o_atom_energy", "o_atom_virial"},
-      {}, &output_tensors));
+  std::vector<std::string> fetch_names = {"o_energy", "o_force", "o_atom_energy",
+                                          "o_atom_virial"};
+  if (fetch_ele_entropy) {
+    fetch_names.push_back("o_ele_entropy");
+  }
+  check_status(
+      session->Run(input_tensors, fetch_names, {}, &output_tensors));
 
   Tensor output_e = output_tensors[0];
   Tensor output_f = output_tensors[1];
@@ -208,6 +239,15 @@ static void run_model(
           (VALUETYPE)1.0 * datom_virial[kk * nall * 9 + 9 * ii + 8];
     }
   }
+  // extract electronic entropy (S_e = -dE/dfparam) if requested
+  if (fetch_ele_entropy) {
+    Tensor output_se = output_tensors[4];
+    auto ose = output_se.flat<ENERGYTYPE>();
+    dele_entropy.resize(ose.size());
+    for (int ii = 0; ii < ose.size(); ++ii) {
+      dele_entropy[ii] = ose(ii);
+    }
+  }
   dforce_ = dforce;
   datom_energy_ = datom_energy;
   datom_virial_ = datom_virial;
@@ -225,6 +265,8 @@ template void run_model<double, double>(
     std::vector<double>& dvirial,
     std::vector<double>& datom_energy_,
     std::vector<double>& datom_virial_,
+    std::vector<ENERGYTYPE>& dele_entropy,
+    const bool& fetch_ele_entropy,
     Session* session,
     const std::vector<std::pair<std::string, Tensor>>& input_tensors,
     const deepmd::AtomMap& atommap,
@@ -237,6 +279,8 @@ template void run_model<double, float>(
     std::vector<float>& dvirial,
     std::vector<float>& datom_energy_,
     std::vector<float>& datom_virial_,
+    std::vector<ENERGYTYPE>& dele_entropy,
+    const bool& fetch_ele_entropy,
     Session* session,
     const std::vector<std::pair<std::string, Tensor>>& input_tensors,
     const deepmd::AtomMap& atommap,
@@ -249,6 +293,8 @@ template void run_model<float, double>(
     std::vector<double>& dvirial,
     std::vector<double>& datom_energy_,
     std::vector<double>& datom_virial_,
+    std::vector<ENERGYTYPE>& dele_entropy,
+    const bool& fetch_ele_entropy,
     Session* session,
     const std::vector<std::pair<std::string, Tensor>>& input_tensors,
     const deepmd::AtomMap& atommap,
@@ -261,6 +307,8 @@ template void run_model<float, float>(
     std::vector<float>& dvirial,
     std::vector<float>& datom_energy_,
     std::vector<float>& datom_virial_,
+    std::vector<ENERGYTYPE>& dele_entropy,
+    const bool& fetch_ele_entropy,
     Session* session,
     const std::vector<std::pair<std::string, Tensor>>& input_tensors,
     const deepmd::AtomMap& atommap,
@@ -276,6 +324,8 @@ static void run_model(
     ENERGYTYPE& dener,
     std::vector<VALUETYPE>& dforce_,
     std::vector<VALUETYPE>& dvirial,
+    std::vector<ENERGYTYPE>& dele_entropy,
+    const bool& fetch_ele_entropy,
     Session* session,
     const std::vector<std::pair<std::string, Tensor>>& input_tensors,
     const AtomMap& atommap,
@@ -284,8 +334,9 @@ static void run_model(
   assert(nframes == 1);
   std::vector<ENERGYTYPE> dener_(1);
   // call multi-frame version
-  run_model<MODELTYPE, VALUETYPE>(dener_, dforce_, dvirial, session,
-                                  input_tensors, atommap, nframes, nghost);
+  run_model<MODELTYPE, VALUETYPE>(dener_, dforce_, dvirial, dele_entropy,
+                                  fetch_ele_entropy, session, input_tensors,
+                                  atommap, nframes, nghost);
   dener = dener_[0];
 }
 
@@ -293,6 +344,8 @@ template void run_model<double, double>(
     ENERGYTYPE& dener,
     std::vector<double>& dforce_,
     std::vector<double>& dvirial,
+    std::vector<ENERGYTYPE>& dele_entropy,
+    const bool& fetch_ele_entropy,
     Session* session,
     const std::vector<std::pair<std::string, Tensor>>& input_tensors,
     const AtomMap& atommap,
@@ -303,6 +356,8 @@ template void run_model<double, float>(
     ENERGYTYPE& dener,
     std::vector<float>& dforce_,
     std::vector<float>& dvirial,
+    std::vector<ENERGYTYPE>& dele_entropy,
+    const bool& fetch_ele_entropy,
     Session* session,
     const std::vector<std::pair<std::string, Tensor>>& input_tensors,
     const AtomMap& atommap,
@@ -313,6 +368,8 @@ template void run_model<float, double>(
     ENERGYTYPE& dener,
     std::vector<double>& dforce_,
     std::vector<double>& dvirial,
+    std::vector<ENERGYTYPE>& dele_entropy,
+    const bool& fetch_ele_entropy,
     Session* session,
     const std::vector<std::pair<std::string, Tensor>>& input_tensors,
     const AtomMap& atommap,
@@ -323,6 +380,8 @@ template void run_model<float, float>(
     ENERGYTYPE& dener,
     std::vector<float>& dforce_,
     std::vector<float>& dvirial,
+    std::vector<ENERGYTYPE>& dele_entropy,
+    const bool& fetch_ele_entropy,
     Session* session,
     const std::vector<std::pair<std::string, Tensor>>& input_tensors,
     const AtomMap& atommap,
@@ -336,6 +395,8 @@ static void run_model(
     std::vector<VALUETYPE>& dvirial,
     std::vector<VALUETYPE>& datom_energy_,
     std::vector<VALUETYPE>& datom_virial_,
+    std::vector<ENERGYTYPE>& dele_entropy,
+    const bool& fetch_ele_entropy,
     Session* session,
     const std::vector<std::pair<std::string, Tensor>>& input_tensors,
     const deepmd::AtomMap& atommap,
@@ -345,7 +406,8 @@ static void run_model(
   std::vector<ENERGYTYPE> dener_(1);
   // call multi-frame version
   run_model<MODELTYPE, VALUETYPE>(dener_, dforce_, dvirial, datom_energy_,
-                                  datom_virial_, session, input_tensors,
+                                  datom_virial_, dele_entropy,
+                                  fetch_ele_entropy, session, input_tensors,
                                   atommap, nframes, nghost);
   dener = dener_[0];
 }
@@ -356,6 +418,8 @@ template void run_model<double, double>(
     std::vector<double>& dvirial,
     std::vector<double>& datom_energy_,
     std::vector<double>& datom_virial_,
+    std::vector<ENERGYTYPE>& dele_entropy,
+    const bool& fetch_ele_entropy,
     Session* session,
     const std::vector<std::pair<std::string, Tensor>>& input_tensors,
     const deepmd::AtomMap& atommap,
@@ -368,6 +432,8 @@ template void run_model<double, float>(
     std::vector<float>& dvirial,
     std::vector<float>& datom_energy_,
     std::vector<float>& datom_virial_,
+    std::vector<ENERGYTYPE>& dele_entropy,
+    const bool& fetch_ele_entropy,
     Session* session,
     const std::vector<std::pair<std::string, Tensor>>& input_tensors,
     const deepmd::AtomMap& atommap,
@@ -380,6 +446,8 @@ template void run_model<float, double>(
     std::vector<double>& dvirial,
     std::vector<double>& datom_energy_,
     std::vector<double>& datom_virial_,
+    std::vector<ENERGYTYPE>& dele_entropy,
+    const bool& fetch_ele_entropy,
     Session* session,
     const std::vector<std::pair<std::string, Tensor>>& input_tensors,
     const deepmd::AtomMap& atommap,
@@ -392,6 +460,8 @@ template void run_model<float, float>(
     std::vector<float>& dvirial,
     std::vector<float>& datom_energy_,
     std::vector<float>& datom_virial_,
+    std::vector<ENERGYTYPE>& dele_entropy,
+    const bool& fetch_ele_entropy,
     Session* session,
     const std::vector<std::pair<std::string, Tensor>>& input_tensors,
     const deepmd::AtomMap& atommap,
@@ -417,6 +487,32 @@ DeepPotTF::DeepPotTF(const std::string& model,
 }
 
 DeepPotTF::~DeepPotTF() { delete graph_def; }
+
+void DeepPotTF::_post_ele_entropy(
+    const std::vector<double>& ener,
+    const std::vector<ENERGYTYPE>& dele_entropy,
+    const std::vector<double>& fparam,
+    const int nframes) {
+  // Store per-frame electronic entropy and thermodynamic quantities.
+  // free_energy = energy (the model predicts F = U - T*S); internal_energy
+  // = F + fparam * S_e = U (sign convention matches the PyTorch backend).
+  ele_entropy_.assign(dele_entropy.begin(), dele_entropy.end());
+  free_energy_.assign(ener.begin(), ener.end());
+  internal_energy_.clear();
+  if (!ele_entropy_.empty() && !fparam.empty()) {
+    size_t nfp = fparam.size() / nframes;
+    size_t nse = ele_entropy_.size() / nframes;
+    size_t nterm = std::min(nfp, nse);
+    internal_energy_.resize(nframes);
+    for (size_t i = 0; i < static_cast<size_t>(nframes); ++i) {
+      double u = ener[i];
+      for (size_t j = 0; j < nterm; ++j) {
+        u += fparam[i * nfp + j] * ele_entropy_[i * nse + j];
+      }
+      internal_energy_[i] = u;
+    }
+  }
+}
 
 void DeepPotTF::init(const std::string& model,
                      const int& gpu_rank,
@@ -593,6 +689,11 @@ void DeepPotTF::compute(ENERGYVTYPE& dener,
   tile_fparam_aparam(aparam, nframes, nloc * daparam, aparam_);
 
   std::vector<std::pair<std::string, Tensor>> input_tensors;
+  // electronic entropy (S_e = -dE/dfparam) is only defined when the
+  // model adopts frame parameters; reuse dfparam > 0 as the gate so the
+  // graph fetch is skipped for entropy-free models.
+  bool fetch_ele_entropy = (dfparam > 0);
+  std::vector<ENERGYTYPE> dele_entropy;
 
   if (dtype == tensorflow::DT_DOUBLE) {
     int ret = session_input_tensors<double>(input_tensors, dcoord_, ntypes,
@@ -600,10 +701,12 @@ void DeepPotTF::compute(ENERGYVTYPE& dener,
                                             aparam, atommap, "", aparam_nall);
     if (atomic) {
       run_model<double>(dener, dforce_, dvirial, datom_energy_, datom_virial_,
-                        session, input_tensors, atommap, nframes);
-    } else {
-      run_model<double>(dener, dforce_, dvirial, session, input_tensors,
+                        dele_entropy, fetch_ele_entropy, session, input_tensors,
                         atommap, nframes);
+    } else {
+      run_model<double>(dener, dforce_, dvirial, dele_entropy,
+                        fetch_ele_entropy, session, input_tensors, atommap,
+                        nframes);
     }
   } else {
     int ret = session_input_tensors<float>(input_tensors, dcoord_, ntypes,
@@ -611,12 +714,19 @@ void DeepPotTF::compute(ENERGYVTYPE& dener,
                                            aparam, atommap, "", aparam_nall);
     if (atomic) {
       run_model<float>(dener, dforce_, dvirial, datom_energy_, datom_virial_,
-                       session, input_tensors, atommap, nframes);
+                       dele_entropy, fetch_ele_entropy, session, input_tensors,
+                       atommap, nframes);
     } else {
-      run_model<float>(dener, dforce_, dvirial, session, input_tensors, atommap,
+      run_model<float>(dener, dforce_, dvirial, dele_entropy,
+                       fetch_ele_entropy, session, input_tensors, atommap,
                        nframes);
     }
   }
+  // store per-frame entropy and thermodynamic quantities
+  _post_ele_entropy_tmpl(_ener_to_vec<ENERGYVTYPE>(dener, nframes),
+                         dele_entropy,
+                         std::vector<double>(fparam.begin(), fparam.end()),
+                         nframes);
 }
 
 template void DeepPotTF::compute<double, ENERGYTYPE>(
@@ -698,6 +808,11 @@ void DeepPotTF::compute(ENERGYVTYPE& dener,
   tile_fparam_aparam(aparam_, nframes, (aparam_nall ? nall : nloc) * daparam,
                      aparam__);
   std::vector<std::pair<std::string, Tensor>> input_tensors;
+  // electronic entropy (S_e = -dE/dfparam) is only defined when the
+  // model adopts frame parameters; reuse dfparam > 0 as the gate so the
+  // graph fetch is skipped for entropy-free models.
+  bool fetch_ele_entropy = (dfparam > 0);
+  std::vector<ENERGYTYPE> dele_entropy;
   // select real atoms
   std::vector<VALUETYPE> dcoord, dforce, aparam, datom_energy, datom_virial;
   std::vector<int> datype, fwd_map, bkw_map;
@@ -723,9 +838,11 @@ void DeepPotTF::compute(ENERGYVTYPE& dener,
     assert(nloc_real == ret);
     if (atomic) {
       run_model<double>(dener, dforce, dvirial, datom_energy, datom_virial,
-                        session, input_tensors, atommap, nframes, nghost_real);
+                        dele_entropy, fetch_ele_entropy, session, input_tensors,
+                        atommap, nframes, nghost_real);
     } else {
-      run_model<double>(dener, dforce, dvirial, session, input_tensors, atommap,
+      run_model<double>(dener, dforce, dvirial, dele_entropy,
+                        fetch_ele_entropy, session, input_tensors, atommap,
                         nframes, nghost_real);
     }
   } else {
@@ -735,12 +852,20 @@ void DeepPotTF::compute(ENERGYVTYPE& dener,
     assert(nloc_real == ret);
     if (atomic) {
       run_model<float>(dener, dforce, dvirial, datom_energy, datom_virial,
-                       session, input_tensors, atommap, nframes, nghost_real);
+                       dele_entropy, fetch_ele_entropy, session, input_tensors,
+                       atommap, nframes, nghost_real);
     } else {
-      run_model<float>(dener, dforce, dvirial, session, input_tensors, atommap,
+      run_model<float>(dener, dforce, dvirial, dele_entropy,
+                       fetch_ele_entropy, session, input_tensors, atommap,
                        nframes, nghost_real);
     }
   }
+
+  // store per-frame entropy and thermodynamic quantities
+  _post_ele_entropy_tmpl(_ener_to_vec<ENERGYVTYPE>(dener, nframes),
+                         dele_entropy,
+                         std::vector<double>(fparam.begin(), fparam.end()),
+                         nframes);
 
   // bkw map
   dforce_.resize(static_cast<size_t>(nframes) * fwd_map.size() * 3);
@@ -843,6 +968,11 @@ void DeepPotTF::compute_mixed_type(ENERGYVTYPE& dener,
   tile_fparam_aparam(aparam, nframes, nloc * daparam, aparam_);
 
   std::vector<std::pair<std::string, Tensor>> input_tensors;
+  // electronic entropy (S_e = -dE/dfparam) is only defined when the
+  // model adopts frame parameters; reuse dfparam > 0 as the gate so the
+  // graph fetch is skipped for entropy-free models.
+  bool fetch_ele_entropy = (dfparam > 0);
+  std::vector<ENERGYTYPE> dele_entropy;
 
   if (dtype == tensorflow::DT_DOUBLE) {
     int nloc = session_input_tensors_mixed_type<double>(
@@ -850,10 +980,12 @@ void DeepPotTF::compute_mixed_type(ENERGYVTYPE& dener,
         fparam, aparam, atommap, "", aparam_nall);
     if (atomic) {
       run_model<double>(dener, dforce_, dvirial, datom_energy_, datom_virial_,
-                        session, input_tensors, atommap, nframes);
-    } else {
-      run_model<double>(dener, dforce_, dvirial, session, input_tensors,
+                        dele_entropy, fetch_ele_entropy, session, input_tensors,
                         atommap, nframes);
+    } else {
+      run_model<double>(dener, dforce_, dvirial, dele_entropy,
+                        fetch_ele_entropy, session, input_tensors, atommap,
+                        nframes);
     }
   } else {
     int nloc = session_input_tensors_mixed_type<float>(
@@ -861,12 +993,19 @@ void DeepPotTF::compute_mixed_type(ENERGYVTYPE& dener,
         fparam, aparam, atommap, "", aparam_nall);
     if (atomic) {
       run_model<float>(dener, dforce_, dvirial, datom_energy_, datom_virial_,
-                       session, input_tensors, atommap, nframes);
+                       dele_entropy, fetch_ele_entropy, session, input_tensors,
+                       atommap, nframes);
     } else {
-      run_model<float>(dener, dforce_, dvirial, session, input_tensors, atommap,
+      run_model<float>(dener, dforce_, dvirial, dele_entropy,
+                       fetch_ele_entropy, session, input_tensors, atommap,
                        nframes);
     }
   }
+  // store per-frame entropy and thermodynamic quantities
+  _post_ele_entropy_tmpl(_ener_to_vec<ENERGYVTYPE>(dener, nframes),
+                         dele_entropy,
+                         std::vector<double>(fparam.begin(), fparam.end()),
+                         nframes);
 }
 
 template void DeepPotTF::compute_mixed_type<double, ENERGYTYPE>(
