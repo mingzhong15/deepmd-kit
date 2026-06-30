@@ -969,22 +969,27 @@ class DeepEval(DeepEvalBackend):
                 if nloc < nall:
                     v_out[ii] = v_out[ii][:, :, :nloc]
             elif odef.category == OutputVariableCategory.OUT:
-                odef_shape = self._get_output_shape(odef, nframes, natoms_real)
-                v_out[ii] = self.reverse_map(
-                    np.reshape(v_out[ii], odef_shape), sel_imap[:natoms_real]
-                )
-                if nloc_sel < nloc:
-                    # convert shape from nsel to nloc
-                    # sel_atoms was applied before sort; see sort_input
-                    # do not consider mixed_types here (as it is never supported)
-                    sel_mask = np.isin(atom_types[0], self.sel_type)
-                    out_nsel = v_out[ii]
-                    out_nloc = np.zeros(
-                        (nframes, nloc, *out_nsel.shape[2:]), dtype=out_nsel.dtype
+                if odef.atomic:
+                    odef_shape = self._get_output_shape(odef, nframes, natoms_real)
+                    v_out[ii] = self.reverse_map(
+                        np.reshape(v_out[ii], odef_shape), sel_imap[:natoms_real]
                     )
-                    out_nloc[:, sel_mask] = out_nsel
-                    v_out[ii] = out_nloc
-                    odef_shape = self._get_output_shape(odef, nframes, nloc)
+                    if nloc_sel < nloc:
+                        # convert shape from nsel to nloc
+                        # sel_atoms was applied before sort; see sort_input
+                        # do not consider mixed_types here (as it is never supported)
+                        sel_mask = np.isin(atom_types[0], self.sel_type)
+                        out_nsel = v_out[ii]
+                        out_nloc = np.zeros(
+                            (nframes, nloc, *out_nsel.shape[2:]),
+                            dtype=out_nsel.dtype,
+                        )
+                        out_nloc[:, sel_mask] = out_nsel
+                        v_out[ii] = out_nloc
+                        odef_shape = self._get_output_shape(odef, nframes, nloc)
+                else:
+                    # per-frame output (e.g. ele_entropy), no atom mapping
+                    odef_shape = self._get_output_shape(odef, nframes, 0)
                 v_out[ii] = np.reshape(v_out[ii], odef_shape)
             elif odef.category in (
                 OutputVariableCategory.REDU,
@@ -1010,10 +1015,11 @@ class DeepEval(DeepEvalBackend):
             # force
             return [nframes, *odef.shape[:-1], natoms, 3]
         elif odef.category == OutputVariableCategory.OUT:
-            # atom_energy, atom_tensor
-            # Something wrong here?
-            # return [nframes, *shape, natoms, 1]
-            return [nframes, natoms, *odef.shape, 1]
+            if odef.atomic:
+                # atom_energy, atom_tensor
+                return [nframes, natoms, *odef.shape, 1]
+            # per-frame output, e.g. ele_entropy
+            return [nframes, *odef.shape]
         else:
             raise RuntimeError("unknown category")
 

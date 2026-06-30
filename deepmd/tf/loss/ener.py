@@ -96,7 +96,9 @@ class EnerStdLoss(Loss):
         three values ordered as [energy, force, virial].
     loss_func : str
         Loss function type. Options: 'mse' or 'mae'.
-        Not implemented in TF backend, only for serialization compatibility.
+        'mse' is used for energy/force/virial/atom_ener/pref_force/generalized_force
+        terms. 'mae' is used for electronic entropy (se) and entropy contribution
+        (ts) terms when their prefactors are non-zero.
     f_use_norm : bool
         If True, use L2 norm of force vectors for loss calculation.
         Not implemented in TF backend, only for serialization compatibility.
@@ -108,6 +110,18 @@ class EnerStdLoss(Loss):
         normalized by 1/N before applying the Huber loss, so ``intensive_ener_virial`` may not
         change behavior in that path. The default is false for backward compatibility
         with models trained using deepmd-kit <= 3.1.3.
+    start_pref_se : float
+        The prefactor of electronic entropy loss at the start of the training.
+    limit_pref_se : float
+        The prefactor of electronic entropy loss at the end of the training.
+    start_pref_ts : float
+        The prefactor of entropy contribution (T*S) loss at the start of the training.
+    limit_pref_ts : float
+        The prefactor of entropy contribution (T*S) loss at the end of the training.
+    dim_fparam : int
+        The dimension of the frame parameter (electronic entropy). Only
+        ``dim_fparam=1`` is supported in training mode when se/ts prefactors are
+        non-zero.
     **kwargs
         Other keyword arguments.
     """
@@ -135,11 +149,17 @@ class EnerStdLoss(Loss):
         loss_func: str = "mse",
         f_use_norm: bool = False,
         intensive_ener_virial: bool = False,
+        start_pref_se: float = 0.0,
+        limit_pref_se: float = 0.0,
+        start_pref_ts: float = 0.0,
+        limit_pref_ts: float = 0.0,
+        dim_fparam: int = 1,
         **kwargs: Any,
     ) -> None:
-        if loss_func != "mse":
+        if loss_func not in ("mse", "mae"):
             raise NotImplementedError(
-                f"TensorFlow backend only supports loss_func='mse', got '{loss_func}'."
+                f"TensorFlow backend only supports loss_func='mse' or 'mae', "
+                f"got '{loss_func}'."
             )
         self.loss_func = loss_func
         self.f_use_norm = f_use_norm
@@ -168,15 +188,33 @@ class EnerStdLoss(Loss):
         self.start_pref_gf = start_pref_gf
         self.limit_pref_gf = limit_pref_gf
         self.numb_generalized_coord = numb_generalized_coord
+        self.start_pref_se = start_pref_se
+        self.limit_pref_se = limit_pref_se
+        self.start_pref_ts = start_pref_ts
+        self.limit_pref_ts = limit_pref_ts
+        self.dim_fparam = dim_fparam
         self.has_e = self.start_pref_e != 0.0 or self.limit_pref_e != 0.0
         self.has_f = self.start_pref_f != 0.0 or self.limit_pref_f != 0.0
         self.has_v = self.start_pref_v != 0.0 or self.limit_pref_v != 0.0
         self.has_ae = self.start_pref_ae != 0.0 or self.limit_pref_ae != 0.0
         self.has_pf = self.start_pref_pf != 0.0 or self.limit_pref_pf != 0.0
         self.has_gf = self.start_pref_gf != 0.0 or self.limit_pref_gf != 0.0
+        self.has_se = self.start_pref_se != 0.0 or self.limit_pref_se != 0.0
+        self.has_ts = self.start_pref_ts != 0.0 or self.limit_pref_ts != 0.0
         if self.has_gf and self.numb_generalized_coord < 1:
             raise RuntimeError(
                 "When generalized force loss is used, the dimension of generalized coordinates should be larger than 0"
+            )
+        if dim_fparam > 1 and (
+            start_pref_se != 0.0
+            or limit_pref_se != 0.0
+            or start_pref_ts != 0.0
+            or limit_pref_ts != 0.0
+        ):
+            raise ValueError(
+                "ele_entropy loss with non-zero se/ts prefactors is only "
+                "supported for dim_fparam=1 in training mode; "
+                f"got dim_fparam={dim_fparam}"
             )
         self.use_huber = use_huber
         self.huber_delta = huber_delta
@@ -220,6 +258,11 @@ class EnerStdLoss(Loss):
             find_drdq = label_dict["find_drdq"]
         else:
             find_drdq = 0.0
+
+        if self.has_se or self.has_ts:
+            find_ele_entropy = label_dict.get("find_ele_entropy", 0.0)
+        else:
+            find_ele_entropy = 0.0
 
         if self.enable_atom_ener_coeff:
             # when ener_coeff (\nu) is defined, the energy is defined as
@@ -435,6 +478,73 @@ class EnerStdLoss(Loss):
                 l2_gen_force_loss, find_drdq
             )
 
+        # electronic entropy (se) and entropy contribution (ts) losses.
+        # l2_*_loss is always computed for rmse reporting (matches the
+        # pattern used for energy/force/virial); the actual loss
+        # contribution follows self.loss_func (mse or mae).
+        if self.has_se or self.has_ts:
+            pref_se = global_cvt_2_ener_float(
+                find_ele_entropy
+                * (
+                    self.limit_pref_se
+                    + (self.start_pref_se - self.limit_pref_se)
+                    * learning_rate
+                    / self.starter_learning_rate
+                )
+            )
+            pref_ts = global_cvt_2_ener_float(
+                find_ele_entropy
+                * (
+                    self.limit_pref_ts
+                    + (self.start_pref_ts - self.limit_pref_ts)
+                    * learning_rate
+                    / self.starter_learning_rate
+                )
+            )
+            fparam_t = tf.reshape(label_dict["fparam"], [-1])
+            se_pred = tf.reshape(model_dict["ele_entropy"], [-1])
+            se_label = tf.reshape(label_dict["ele_entropy"], [-1])
+        if self.has_se:
+            diff_se = se_pred - se_label
+            l2_se_loss = tf.reduce_mean(
+                tf.multiply(fparam_t, tf.square(diff_se)),
+                name="l2_se_" + suffix,
+            )
+            if self.loss_func == "mse":
+                loss += global_cvt_2_ener_float(
+                    atom_norm**norm_exp * (pref_se * l2_se_loss)
+                )
+            else:
+                l1_se_loss = tf.reduce_mean(
+                    tf.multiply(fparam_t, tf.abs(diff_se)),
+                    name="l1_se_" + suffix,
+                )
+                loss += global_cvt_2_ener_float(atom_norm * (pref_se * l1_se_loss))
+                more_loss["l1_se_loss"] = self.display_if_exist(
+                    l1_se_loss, find_ele_entropy
+                )
+            more_loss["l2_se_loss"] = self.display_if_exist(
+                l2_se_loss, find_ele_entropy
+            )
+        if self.has_ts:
+            ts_pred = tf.reshape(model_dict["t_entropy"], [-1])
+            ts_label = tf.multiply(fparam_t, se_label)
+            diff_ts = ts_pred - ts_label
+            l2_ts_loss = tf.reduce_mean(tf.square(diff_ts), name="l2_ts_" + suffix)
+            if self.loss_func == "mse":
+                loss += global_cvt_2_ener_float(
+                    atom_norm**norm_exp * (pref_ts * l2_ts_loss)
+                )
+            else:
+                l1_ts_loss = tf.reduce_mean(tf.abs(diff_ts), name="l1_ts_" + suffix)
+                loss += global_cvt_2_ener_float(atom_norm * (pref_ts * l1_ts_loss))
+                more_loss["l1_ts_loss"] = self.display_if_exist(
+                    l1_ts_loss, find_ele_entropy
+                )
+            more_loss["l2_ts_loss"] = self.display_if_exist(
+                l2_ts_loss, find_ele_entropy
+            )
+
         # only used when tensorboard was set as true
         self.l2_loss_summary = tf.summary.scalar("l2_loss_" + suffix, tf.sqrt(loss))
         if self.has_e:
@@ -464,6 +574,16 @@ class EnerStdLoss(Loss):
             self.l2_loss_gf_summary = tf.summary.scalar(
                 "l2_gen_force_loss_" + suffix, tf.sqrt(l2_gen_force_loss)
             )
+        if self.has_se:
+            self.l2_loss_se_summary = tf.summary.scalar(
+                "l2_se_loss_" + suffix,
+                tf.sqrt(l2_se_loss) / global_cvt_2_tf_float(natoms[0]),
+            )
+        if self.has_ts:
+            self.l2_loss_ts_summary = tf.summary.scalar(
+                "l2_ts_loss_" + suffix,
+                tf.sqrt(l2_ts_loss) / global_cvt_2_tf_float(natoms[0]),
+            )
 
         self.l2_l = loss
         self.l2_more = more_loss
@@ -479,10 +599,20 @@ class EnerStdLoss(Loss):
             self.l2_more["l2_atom_ener_loss"] if self.has_ae else placeholder,
             self.l2_more["l2_pref_force_loss"] if self.has_pf else placeholder,
             self.l2_more["l2_gen_force_loss"] if self.has_gf else placeholder,
+            self.l2_more["l2_se_loss"] if self.has_se else placeholder,
+            self.l2_more["l2_ts_loss"] if self.has_ts else placeholder,
         ]
-        error, error_e, error_f, error_v, error_ae, error_pf, error_gf = run_sess(
-            sess, run_data, feed_dict=feed_dict
-        )
+        (
+            error,
+            error_e,
+            error_f,
+            error_v,
+            error_ae,
+            error_pf,
+            error_gf,
+            error_se,
+            error_ts,
+        ) = run_sess(sess, run_data, feed_dict=feed_dict)
         results = {"natoms": natoms[0], "rmse": np.sqrt(error)}
         if self.has_e:
             results["rmse_e"] = np.sqrt(error_e) / natoms[0]
@@ -496,6 +626,10 @@ class EnerStdLoss(Loss):
             results["rmse_pf"] = np.sqrt(error_pf)
         if self.has_gf:
             results["rmse_gf"] = np.sqrt(error_gf)
+        if self.has_se:
+            results["rmse_se"] = np.sqrt(error_se) / natoms[0]
+        if self.has_ts:
+            results["rmse_ts"] = np.sqrt(error_ts) / natoms[0]
         return results
 
     @property
@@ -544,6 +678,16 @@ class EnerStdLoss(Loss):
                     default=1.0,
                 )
             )
+        if self.has_se or self.has_ts:
+            data_requirements.append(
+                DataRequirementItem(
+                    "ele_entropy",
+                    self.dim_fparam,
+                    atomic=False,
+                    must=False,
+                    high_prec=True,
+                )
+            )
         return data_requirements
 
     def serialize(self, suffix: str = "") -> dict:
@@ -561,7 +705,7 @@ class EnerStdLoss(Loss):
         """
         return {
             "@class": "EnergyLoss",
-            "@version": 4,
+            "@version": 5,
             "starter_learning_rate": self.starter_learning_rate,
             "start_pref_e": self.start_pref_e,
             "limit_pref_e": self.limit_pref_e,
@@ -584,6 +728,11 @@ class EnerStdLoss(Loss):
             "f_use_norm": self.f_use_norm,
             "use_default_pf": getattr(self, "use_default_pf", False),
             "intensive_ener_virial": self.intensive_ener_virial,
+            "start_pref_se": self.start_pref_se,
+            "limit_pref_se": self.limit_pref_se,
+            "start_pref_ts": self.start_pref_ts,
+            "limit_pref_ts": self.limit_pref_ts,
+            "dim_fparam": self.dim_fparam,
         }
 
     @classmethod
@@ -604,11 +753,19 @@ class EnerStdLoss(Loss):
         """
         data = data.copy()
         version = data.pop("@version")
-        check_version_compatibility(version, 4, 1)
+        check_version_compatibility(version, 5, 1)
         data.pop("@class")
         # Handle backward compatibility for older versions without intensive_ener_virial
         if version < 3:
             data.setdefault("intensive_ener_virial", False)
+        # Handle backward compatibility for older versions without
+        # electronic entropy (se) and entropy contribution (ts) losses
+        if version < 5:
+            data.setdefault("start_pref_se", 0.0)
+            data.setdefault("limit_pref_se", 0.0)
+            data.setdefault("start_pref_ts", 0.0)
+            data.setdefault("limit_pref_ts", 0.0)
+            data.setdefault("dim_fparam", 1)
         return cls(**data)
 
 

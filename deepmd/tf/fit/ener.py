@@ -878,6 +878,7 @@ class EnerFitting(Fitting):
         """
         _loss_type = loss.pop("type", "ener")
         loss["starter_learning_rate"] = lr.start_lr()
+        loss.setdefault("dim_fparam", self.numb_fparam)
         if _loss_type == "ener":
             return EnerStdLoss(**loss)
         elif _loss_type == "ener_dipole":

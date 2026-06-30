@@ -455,6 +455,30 @@ class EnerModel(StandardModel):
         model_dict["coord"] = coord
         model_dict["atype"] = atype
 
+        # Electronic entropy (S_e = -dE/dfparam) and entropy contribution
+        # (T*S = fparam * S_e). Only defined when frame parameters are used.
+        # Sign convention matches force = -dE/dr and the PyTorch backend.
+        if self.numb_fparam > 0 and "fparam" in input_dict:
+            fparam_in = input_dict["fparam"]
+            derv_fp = tf.gradients(energy, [fparam_in])[0]
+            if derv_fp is not None:
+                ele_entropy = tf.reshape(
+                    -derv_fp,
+                    [-1, self.numb_fparam],
+                    name="o_ele_entropy" + suffix,
+                )
+                model_dict["ele_entropy"] = ele_entropy
+                # fparam_in is a 1D placeholder; reshape to match the
+                # 2D ele_entropy so the element-wise product stays per-frame
+                # instead of broadcasting across frames.
+                fparam_2d = tf.reshape(fparam_in, [-1, self.numb_fparam])
+                t_entropy = tf.multiply(
+                    global_cvt_2_ener_float(fparam_2d),
+                    ele_entropy,
+                    name="o_t_entropy" + suffix,
+                )
+                model_dict["t_entropy"] = t_entropy
+
         return model_dict
 
     def init_variables(
